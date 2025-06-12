@@ -1892,6 +1892,29 @@ export class ActionLogger extends EventEmitter {
     ActionLogger.logInfo(`${collectorType} collector initialized`, { collectorType, executionId, type: 'collector_init' });
   }
 
+  static logCollectorFinalization(collectorType: string, executionId: string, stats?: any): void {
+    ActionLogger.logInfo(`${collectorType} collector finalized`, { 
+      collectorType, 
+      executionId, 
+      stats,
+      type: 'collector_finalization' 
+    });
+  }
+
+  static logVideoRecording(action: 'start' | 'stop', scenarioId: string, duration?: number, size?: number): void {
+    const message = action === 'start' 
+      ? `Video recording started for scenario: ${scenarioId}`
+      : `Video recording stopped for scenario: ${scenarioId}`;
+    
+    ActionLogger.logInfo(message, { 
+      action,
+      scenarioId,
+      duration,
+      size,
+      type: 'video_recording' 
+    });
+  }
+
   static logScreenshot(fileName: string): void {
     const instance = ActionLogger.getInstance();
     if (instance.isInitialized) {

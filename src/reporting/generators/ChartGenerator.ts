@@ -19,7 +19,6 @@ import {
   WaterfallChart,
   FunnelChart,
   Point,
-  DataSet,
   ChartColors,
   ReportTheme
 } from '../types/reporting.types';
@@ -74,7 +73,9 @@ export class ChartGenerator {
     this.logger.info(`Generating ${type} chart`);
     
     const chartId = `chart-${Math.random().toString(36).substr(2, 9)}`;
-    const colors = options.colors || this.generateColorPalette(data, theme);
+    const colors: ChartColors = options.colors 
+      ? { dataColors: options.colors }
+      : this.generateColorPalette(data, theme);
     
     switch (type) {
       case ChartType.DOUGHNUT:
@@ -126,10 +127,10 @@ export class ChartGenerator {
     const outerRadius = Math.min(width, height) / 2 - 40;
     const innerRadius = outerRadius * 0.6;
     
-    const total = data.values.reduce((sum, val) => sum + val, 0);
+    const total = data.values.reduce((sum: number, val: number) => sum + val, 0);
     let currentAngle = -Math.PI / 2; // Start at top
     
-    const segments = data.values.map((value, index) => {
+    const segments = data.values.map((value: number, index: number) => {
       const percentage = value / total;
       const angle = percentage * 2 * Math.PI;
       const startAngle = currentAngle;
@@ -163,7 +164,7 @@ export class ChartGenerator {
     
     <!-- Doughnut Segments -->
     <g class="doughnut-segments" transform="translate(${centerX}, ${centerY})">
-      ${segments.map((segment, index) => {
+      ${segments.map((segment: any, index: number) => {
         const path = this.createArcPath(
           0, 0, innerRadius, outerRadius,
           segment.startAngle, segment.endAngle
@@ -203,7 +204,7 @@ export class ChartGenerator {
     
     <!-- Legend -->
     ${options.showLegend !== false ? this.generateLegend(
-      segments.map(s => ({ label: s.label, color: s.color })),
+      segments.map((s: any) => ({ label: s.label, color: s.color })),
       width, height, 'right'
     ) : ''}
   </svg>
@@ -274,7 +275,7 @@ ${this.generateDoughnutScript(id, segments, total)}`;
       <!-- Y Axis -->
       <g class="y-axis">
         <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="${colors.gridColor}" />
-        ${this.generateYAxisLabels(0, maxValue, 5).map((value, index) => `
+        ${this.generateYAxisLabels(0, maxValue, 5).map((value: any) => `
         <g transform="translate(0, ${chartHeight - (value * yScale)})">
           <line x1="-6" x2="0" stroke="${colors.gridColor}" />
           <text x="-10" y="5" text-anchor="end" class="axis-label">
@@ -380,9 +381,9 @@ ${this.generateDoughnutScript(id, segments, total)}`;
     <!-- Legend -->
     ${data.datasets.length > 1 && options.showLegend !== false ? 
       this.generateLegend(
-        data.datasets.map((ds, i) => ({
+        data.datasets.map((ds: any, i: number) => ({
           label: ds.label,
-          color: colors.dataColors[i % colors.dataColors.length]
+          color: ds.color || colors.dataColors[i % colors.dataColors.length]
         })),
         width, height, 'top'
       ) : ''}
@@ -430,7 +431,7 @@ ${this.generateBarChartScript(id, data)}`;
       ${this.generateChartGradients(colors)}
       
       <!-- Area gradients -->
-      ${data.datasets.map((dataset, index) => {
+      ${data.datasets.map((_dataset: any, index: number) => {
         const color = colors.dataColors[index % colors.dataColors.length];
         return `
         <linearGradient id="${id}-gradient-${index}" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -468,7 +469,7 @@ ${this.generateBarChartScript(id, data)}`;
       <!-- Y Axis -->
       <g class="y-axis">
         <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="${colors.gridColor}" />
-        ${this.generateYAxisLabels(minValue, maxValue, 5).map((value, index) => `
+        ${this.generateYAxisLabels(minValue, maxValue, 5).map((value: any) => `
         <g transform="translate(0, ${chartHeight - ((value - yOffset) * yScale)})">
           <line x1="-6" x2="0" stroke="${colors.gridColor}" />
           <text x="-10" y="5" text-anchor="end" class="axis-label">
@@ -487,7 +488,10 @@ ${this.generateBarChartScript(id, data)}`;
         }));
         
         const linePath = this.createLinePath(points, dataset.smooth !== false);
-        const areaPath = `${linePath} L ${points[points.length - 1].x},${chartHeight} L 0,${chartHeight} Z`;
+        const lastPoint = points[points.length - 1];
+        const areaPath = lastPoint 
+          ? `${linePath} L ${lastPoint.x},${chartHeight} L 0,${chartHeight} Z`
+          : linePath;
         
         return `
         <g class="dataset" data-dataset="${datasetIndex}">
@@ -586,9 +590,9 @@ ${this.generateBarChartScript(id, data)}`;
     <!-- Legend -->
     ${data.datasets.length > 1 && options.showLegend !== false ? 
       this.generateLegend(
-        data.datasets.map((ds, i) => ({
+        data.datasets.map((ds: any, i: number) => ({
           label: ds.label,
-          color: colors.dataColors[i % colors.dataColors.length]
+          color: ds.color || colors.dataColors[i % colors.dataColors.length]
         })),
         width, height, 'top'
       ) : ''}
@@ -615,6 +619,10 @@ ${this.generateLineChartScript(id, data)}`;
   ): string {
     // Area chart is similar to line chart with filled areas
     const lineChartData: LineChart = {
+      type: ChartType.AREA,
+      title: data.title || '',
+      data: data,
+      options: options,
       labels: data.labels,
       datasets: data.datasets.map(ds => ({
         ...ds,
@@ -640,10 +648,10 @@ ${this.generateLineChartScript(id, data)}`;
     const centerY = height / 2;
     const radius = Math.min(width, height) / 2 - 40;
     
-    const total = data.values.reduce((sum, val) => sum + val, 0);
+    const total = data.values.reduce((sum: number, val: number) => sum + val, 0);
     let currentAngle = -Math.PI / 2;
     
-    const segments = data.values.map((value, index) => {
+    const segments = data.values.map((value: number, index: number) => {
       const percentage = value / total;
       const angle = percentage * 2 * Math.PI;
       const startAngle = currentAngle;
@@ -677,7 +685,7 @@ ${this.generateLineChartScript(id, data)}`;
     
     <!-- Pie Segments -->
     <g class="pie-segments" transform="translate(${centerX}, ${centerY})">
-      ${segments.map((segment, index) => {
+      ${segments.map((segment: any, index: number) => {
         const path = this.createArcPath(
           0, 0, 0, radius,
           segment.startAngle, segment.endAngle
@@ -736,7 +744,7 @@ ${this.generateLineChartScript(id, data)}`;
     
     <!-- Legend -->
     ${options.showLegend !== false ? this.generateLegend(
-      segments.map(s => ({ label: s.label, color: s.color })),
+      segments.map((s: any) => ({ label: s.label, color: s.color })),
       width, height, 'right'
     ) : ''}
   </svg>
@@ -778,7 +786,7 @@ ${this.generatePieChartScript(id, segments, total)}`;
   <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" id="${id}">
     <defs>
       ${this.generateChartFilters()}
-      ${data.datasets.map((dataset, index) => {
+      ${data.datasets.map((_dataset: any, index: number) => {
         const color = colors.dataColors[index % colors.dataColors.length];
         return `
         <linearGradient id="${id}-radar-gradient-${index}">
@@ -936,9 +944,9 @@ ${this.generatePieChartScript(id, segments, total)}`;
     <!-- Legend -->
     ${data.datasets.length > 1 && options.showLegend !== false ? 
       this.generateLegend(
-        data.datasets.map((ds, i) => ({
+        data.datasets.map((ds: any, i: number) => ({
           label: ds.label,
-          color: colors.dataColors[i % colors.dataColors.length]
+          color: ds.color || colors.dataColors[i % colors.dataColors.length]
         })),
         width, height, 'bottom'
       ) : ''}
@@ -1005,7 +1013,7 @@ ${this.generateRadarChartScript(id, data)}`;
       <!-- X Axis -->
       <g class="x-axis" transform="translate(0, ${chartHeight})">
         <line x1="0" y1="0" x2="${chartWidth}" y2="0" stroke="${colors.gridColor}" />
-        ${this.generateAxisValues(xMin, xMax, 5).map((value, index) => {
+        ${this.generateAxisValues(xMin, xMax, 5).map((value: any) => {
           const x = (value - xOffset) * xScale;
           return `
           <g transform="translate(${x}, 0)">
@@ -1020,7 +1028,7 @@ ${this.generateRadarChartScript(id, data)}`;
       <!-- Y Axis -->
       <g class="y-axis">
         <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="${colors.gridColor}" />
-        ${this.generateAxisValues(yMin, yMax, 5).map((value, index) => {
+        ${this.generateAxisValues(yMin, yMax, 5).map((value: any) => {
           const y = chartHeight - ((value - yOffset) * yScale);
           return `
           <g transform="translate(0, ${y})">
@@ -1108,9 +1116,9 @@ ${this.generateRadarChartScript(id, data)}`;
     <!-- Legend -->
     ${data.datasets.length > 1 && options.showLegend !== false ? 
       this.generateLegend(
-        data.datasets.map((ds, i) => ({
+        data.datasets.map((ds: any, i: number) => ({
           label: ds.label,
-          color: colors.dataColors[i % colors.dataColors.length]
+          color: ds.color || colors.dataColors[i % colors.dataColors.length]
         })),
         width, height, 'right'
       ) : ''}
@@ -1147,7 +1155,7 @@ ${this.generateScatterChartScript(id, data)}`;
     const xMax = Math.max(...allPoints.map(p => p.x));
     const yMin = Math.min(...allPoints.map(p => p.y));
     const yMax = Math.max(...allPoints.map(p => p.y));
-    const rMax = Math.max(...allPoints.map(p => p.r));
+    const rMax = Math.max(...allPoints.map(p => p.r || 5));
     
     const xRange = xMax - xMin;
     const yRange = yMax - yMin;
@@ -1163,7 +1171,7 @@ ${this.generateScatterChartScript(id, data)}`;
   <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" id="${id}">
     <defs>
       ${this.generateChartFilters()}
-      ${data.datasets.map((dataset, index) => {
+      ${data.datasets.map((_dataset: any, index: number) => {
         const color = colors.dataColors[index % colors.dataColors.length];
         return `
         <radialGradient id="${id}-bubble-gradient-${index}">
@@ -1188,7 +1196,7 @@ ${this.generateScatterChartScript(id, data)}`;
       <!-- X Axis -->
       <g class="x-axis" transform="translate(0, ${chartHeight})">
         <line x1="0" y1="0" x2="${chartWidth}" y2="0" stroke="${colors.gridColor}" />
-        ${this.generateAxisValues(xMin, xMax, 5).map((value, index) => {
+        ${this.generateAxisValues(xMin, xMax, 5).map((value: any) => {
           const x = (value - xOffset) * xScale;
           return `
           <g transform="translate(${x}, 0)">
@@ -1203,7 +1211,7 @@ ${this.generateScatterChartScript(id, data)}`;
       <!-- Y Axis -->
       <g class="y-axis">
         <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="${colors.gridColor}" />
-        ${this.generateAxisValues(yMin, yMax, 5).map((value, index) => {
+        ${this.generateAxisValues(yMin, yMax, 5).map((value: any) => {
           const y = chartHeight - ((value - yOffset) * yScale);
           return `
           <g transform="translate(0, ${y})">
@@ -1218,14 +1226,14 @@ ${this.generateScatterChartScript(id, data)}`;
       <!-- Bubbles -->
       ${data.datasets.map((dataset, datasetIndex) => {
         // Sort bubbles by size (largest first) to prevent overlap issues
-        const sortedData = [...dataset.data].sort((a, b) => b.r - a.r);
+        const sortedData = [...dataset.data].sort((a, b) => (b.r || 0) - (a.r || 0));
         
         return `
         <g class="dataset" data-dataset="${datasetIndex}">
           ${sortedData.map((point, index) => {
             const x = (point.x - xOffset) * xScale;
             const y = chartHeight - ((point.y - yOffset) * yScale);
-            const r = point.r * rScale;
+            const r = (point.r || 5) * rScale;
             
             return `
             <circle
@@ -1293,9 +1301,9 @@ ${this.generateScatterChartScript(id, data)}`;
     <!-- Legend -->
     ${data.datasets.length > 1 && options.showLegend !== false ? 
       this.generateLegend(
-        data.datasets.map((ds, i) => ({
+        data.datasets.map((ds: any, i: number) => ({
           label: ds.label,
-          color: colors.dataColors[i % colors.dataColors.length]
+          color: ds.color || colors.dataColors[i % colors.dataColors.length]
         })),
         width, height, 'right'
       ) : ''}
@@ -1516,8 +1524,13 @@ ${this.generateHeatmapChartScript(id, data)}`;
     const chartHeight = height - margin.top - margin.bottom;
     
     // Calculate treemap layout
-    const totalValue = data.data.reduce((sum, item) => sum + item.value, 0);
-    const rectangles = this.calculateTreemapLayout(data.data, chartWidth, chartHeight);
+    const totalValue = data.data.reduce((sum: number, item: any) => sum + item.value, 0);
+    const normalizedData = data.data.map(item => ({
+      label: item.label || item.name,
+      value: item.value,
+      color: item.color
+    }));
+    const rectangles = this.calculateTreemapLayout(normalizedData, chartWidth, chartHeight);
     
     return `
 <div class="chart-container" id="${id}-container">
@@ -1842,7 +1855,7 @@ ${this.generateSankeyChartScript(id, nodes, links)}`;
       }).join('')}
       
       <!-- Scale ticks -->
-      ${this.generateGaugeTicks(data.min, data.max, 10).map((tick, index) => {
+      ${this.generateGaugeTicks(data.min, data.max, 10).map((tick: any) => {
         const tickRatio = (tick.value - data.min) / (data.max - data.min);
         const tickAngle = startAngle + angleRange * tickRatio;
         const isMajor = tick.major;
@@ -2064,7 +2077,7 @@ ${this.generateGaugeChartScript(id, data)}`;
       <!-- Y Axis -->
       <g class="y-axis">
         <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="${colors.gridColor}" />
-        ${this.generateYAxisLabels(minValue, maxValue, 5).map((value, index) => `
+        ${this.generateYAxisLabels(minValue, maxValue, 5).map((value: any) => `
         <g transform="translate(0, ${chartHeight - ((value - minValue) * yScale)})">
           <line x1="-6" x2="0" stroke="${colors.gridColor}" />
           <text x="-10" y="5" text-anchor="end" class="axis-label">
@@ -2255,7 +2268,7 @@ ${this.generateWaterfallChartScript(id, cumulativeData)}`;
     
     const segments = data.values.map((value, index) => {
       const ratio = value / maxValue;
-      const prevRatio = index > 0 ? data.values[index - 1] / maxValue : 1;
+      const prevRatio = index > 0 ? (data.values[index - 1] || 0) / maxValue : 1;
       
       const y = index * segmentHeight;
       const topSegmentWidth = topWidth - (topWidth - bottomWidth) * (index / data.values.length);
@@ -2271,7 +2284,7 @@ ${this.generateWaterfallChartScript(id, cumulativeData)}`;
         label: data.labels[index],
         value,
         ratio,
-        percentage: (value / data.values[0]) * 100,
+        percentage: (value / (data.values[0] || 1)) * 100,
         path: `
           M ${topOffset},${y}
           L ${topOffset + actualTopWidth},${y}
@@ -2382,7 +2395,7 @@ ${this.generateWaterfallChartScript(id, cumulativeData)}`;
           opacity="0.7"
           style="opacity: 0"
         >
-          ${((data.values[index + 1] / segment.value) * 100).toFixed(1)}%
+          ${((data.values[index + 1] || 0) / segment.value * 100).toFixed(1)}%
           <animate
             attributeName="opacity"
             from="0"
@@ -2398,7 +2411,7 @@ ${this.generateWaterfallChartScript(id, cumulativeData)}`;
       
       <!-- Drop-off indicators -->
       ${segments.slice(0, -1).map((segment, index) => {
-        const dropOff = segment.value - data.values[index + 1];
+        const dropOff = segment.value - (data.values[index + 1] || 0);
         const dropOffPercentage = (dropOff / segment.value) * 100;
         
         return `
@@ -2452,7 +2465,7 @@ ${this.generateFunnelChartScript(id, segments)}`;
   /**
    * Generate color palette
    */
-  private generateColorPalette(data: ChartData, theme: ReportTheme): ChartColors {
+  private generateColorPalette(_data: ChartData, theme: ReportTheme): ChartColors {
     return {
       primaryColor: theme.primaryColor,
       primaryDark: this.darkenColor(theme.primaryColor, 20),
@@ -2524,7 +2537,7 @@ ${this.generateFunnelChartScript(id, segments)}`;
       style="pointer-events: none"
     >
       <tspan x="${x}" dy="0">${segment.label}</tspan>
-      <tspan x="${x}" dy="1.2em" font-size="0.9em">${(segment.percentage * 100).toFixed(1)}%</tspan>
+      <tspan x="${x}" dy="1.2em" font-size="0.9em">${((segment.percentage || 0) * 100).toFixed(1)}%</tspan>
     </text>`;
   }
 
@@ -2533,7 +2546,10 @@ ${this.generateFunnelChartScript(id, segments)}`;
    */
   private createLinePath(points: Point[], smooth: boolean = true): string {
     if (points.length === 0) return '';
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    if (points.length === 1) {
+      const firstPoint = points[0];
+      return firstPoint ? `M ${firstPoint.x} ${firstPoint.y}` : '';
+    }
     
     if (!smooth) {
       return points.map((p, i) => 
@@ -2542,12 +2558,17 @@ ${this.generateFunnelChartScript(id, segments)}`;
     }
     
     // Create smooth curve using cubic bezier
-    let path = `M ${points[0].x} ${points[0].y}`;
+    const firstPoint = points[0];
+    if (!firstPoint) return '';
+    
+    let path = `M ${firstPoint.x} ${firstPoint.y}`;
     
     for (let i = 1; i < points.length - 1; i++) {
       const p0 = points[i - 1];
       const p1 = points[i];
       const p2 = points[i + 1];
+      
+      if (!p0 || !p1 || !p2) continue;
       
       const cp1x = p0.x + (p1.x - p0.x) * 0.5;
       const cp1y = p0.y + (p1.y - p0.y) * 0.5;
@@ -2559,8 +2580,9 @@ ${this.generateFunnelChartScript(id, segments)}`;
     
     // Last point
     const lastPoint = points[points.length - 1];
-    const secondLastPoint = points[points.length - 2];
-    path += ` L ${lastPoint.x} ${lastPoint.y}`;
+    if (lastPoint) {
+      path += ` L ${lastPoint.x} ${lastPoint.y}`;
+    }
     
     return path;
   }
@@ -2769,13 +2791,16 @@ ${this.generateFunnelChartScript(id, segments)}`;
    * Get heatmap color
    */
   private getHeatmapColor(value: number, colors: string[]): string {
-    if (value <= 0) return colors[0];
-    if (value >= 1) return colors[colors.length - 1];
+    if (value <= 0) return colors[0] || '#93186C';
+    if (value >= 1) return colors[colors.length - 1] || '#93186C';
     
     const index = Math.floor(value * (colors.length - 1));
     const remainder = value * (colors.length - 1) - index;
     
-    return this.interpolateColor(colors[index], colors[index + 1], remainder);
+    const color1 = colors[index] || '#93186C';
+    const color2 = colors[index + 1] || colors[index] || '#93186C';
+    
+    return this.interpolateColor(color1, color2, remainder);
   }
 
   /**
@@ -2819,7 +2844,7 @@ ${this.generateFunnelChartScript(id, segments)}`;
     let remainingValue = total;
     
     // Simple slice and dice algorithm
-    sorted.forEach((item, index) => {
+    sorted.forEach((item: any) => {
       const ratio = item.value / remainingValue;
       
       if (remainingWidth > remainingHeight) {
@@ -2912,12 +2937,12 @@ ${this.generateFunnelChartScript(id, segments)}`;
     
     const positionedNodes: any[] = [];
     
-    levelGroups.forEach((levelNodes, level) => {
-      const totalHeight = levelNodes.reduce((sum, n) => sum + n.value, 0);
+    levelGroups.forEach((levelNodes: any, level: number) => {
+      const totalHeight = levelNodes.reduce((sum: number, n: any) => sum + n.value, 0);
       const scale = (height - nodePadding * (levelNodes.length - 1)) / totalHeight;
       
       let currentY = 0;
-      levelNodes.forEach((node, index) => {
+      levelNodes.forEach((node: any) => {
         const nodeHeight = node.value * scale;
         
         positionedNodes.push({
@@ -2977,7 +3002,7 @@ ${this.generateFunnelChartScript(id, segments)}`;
   private generateGaugeTicks(
     min: number,
     max: number,
-    count: number
+    _count: number
   ): Array<{ value: number; major: boolean }> {
     const ticks: Array<{ value: number; major: boolean }> = [];
     const majorStep = (max - min) / 5;
@@ -3000,7 +3025,7 @@ ${this.generateFunnelChartScript(id, segments)}`;
     const result: any[] = [];
     let cumulativeValue = 0;
     
-    data.forEach((item, index) => {
+    data.forEach((item: any) => {
       const start = cumulativeValue;
       const end = item.type === 'total' ? item.value : start + item.value;
       

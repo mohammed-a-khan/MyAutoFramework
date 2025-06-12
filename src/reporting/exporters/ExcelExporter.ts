@@ -4,12 +4,19 @@ import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
-import { ExportResult, ExportOptions, ExecutionResult, ScenarioResult, StepResult, FeatureResult } from '../types/reporting.types';
-import { Logger } from '../../utils/Logger';
-import { DateUtils } from '../../utils/DateUtils';
-import { FileUtils } from '../../utils/FileUtils';
+import { 
+  ExportResult, 
+  ExportOptions, 
+  ExecutionResult, 
+  ExportFormat,
+  TestStatus
+} from '../types/reporting.types';
+import { Logger } from '../../core/utils/Logger';
+import { FileUtils } from '../../core/utils/FileUtils';
+import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
 
 interface ExcelExportOptions extends ExportOptions {
+  format: ExportFormat;
   includeCharts?: boolean;
   includeMetrics?: boolean;
   includeScreenshots?: boolean;
@@ -24,7 +31,7 @@ interface ExcelExportOptions extends ExportOptions {
 }
 
 export class ExcelExporter {
-  private logger = new Logger('ExcelExporter');
+  private logger = Logger.getInstance('ExcelExporter');
   private workbook: XLSX.WorkBook | null = null;
   private readonly brandColor = '#93186C';
   private readonly maxCellLength = 32767; // Excel cell character limit
@@ -32,7 +39,7 @@ export class ExcelExporter {
   async export(
     result: ExecutionResult,
     outputPath: string,
-    options: ExcelExportOptions = {}
+    options: ExcelExportOptions = { format: ExportFormat.EXCEL }
   ): Promise<ExportResult> {
     const startTime = Date.now();
     
@@ -88,42 +95,32 @@ export class ExcelExporter {
       });
 
       // Ensure directory exists
-      await FileUtils.ensureDirectory(path.dirname(outputPath));
+      await FileUtils.ensureDir(path.dirname(outputPath));
       
       // Write file
       await fs.promises.writeFile(outputPath, buffer);
 
       const fileStats = await fs.promises.stat(outputPath);
-      const exportTime = Date.now() - startTime;
       
       this.logger.info('Excel export completed', { 
-        exportTime,
+        exportTime: Date.now() - startTime,
         fileSize: fileStats.size,
         sheets: Object.keys(this.workbook.Sheets).length
       });
 
       return {
         success: true,
-        outputPath,
-        format: 'excel',
-        exportTime,
-        fileSize: fileStats.size,
-        metadata: {
-          sheets: Object.keys(this.workbook.Sheets).length,
-          hasCharts: options.includeCharts || false,
-          theme: options.theme || 'default',
-          compressed: options.compression !== false
-        }
+        filePath: outputPath,
+        format: ExportFormat.EXCEL,
+        size: fileStats.size
       };
 
     } catch (error) {
-      this.logger.error('Excel export failed', error);
+      this.logger.error('Excel export failed', error as Error);
       return {
         success: false,
-        outputPath,
-        format: 'excel',
-        exportTime: Date.now() - startTime,
-        error: error.message
+        format: ExportFormat.EXCEL,
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
@@ -149,22 +146,22 @@ export class ExcelExporter {
     data.push(['Start Time', new Date(result.startTime)]);
     data.push(['End Time', new Date(result.endTime)]);
     data.push(['Duration', this.formatDuration(result.duration)]);
-    data.push(['Total Features', result.summary.totalFeatures]);
-    data.push(['Total Scenarios', result.summary.totalScenarios]);
-    data.push(['Total Steps', result.summary.totalSteps]);
+    data.push(['Total Features', result.totalFeatures]);
+    data.push(['Total Scenarios', result.totalScenarios]);
+    data.push(['Total Steps', result.totalSteps]);
     data.push(['']); // Empty row
 
     // Results section
     data.push(['Test Results']);
     data.push(['Status', 'Count', 'Percentage']);
-    const total = result.summary.totalScenarios || 1; // Avoid division by zero
-    data.push(['Passed', result.summary.passed, result.summary.passed / total]);
-    data.push(['Failed', result.summary.failed, result.summary.failed / total]);
-    data.push(['Skipped', result.summary.skipped, result.summary.skipped / total]);
+    const total = result.totalScenarios || 1; // Avoid division by zero
+    data.push(['Passed', result.passedScenarios, result.passedScenarios / total]);
+    data.push(['Failed', result.failedScenarios, result.failedScenarios / total]);
+    data.push(['Skipped', result.skippedScenarios, result.skippedScenarios / total]);
     data.push(['']); // Empty row
 
     // Pass rate calculation
-    data.push(['Overall Pass Rate', '', result.summary.passed / total]);
+    data.push(['Overall Pass Rate', '', result.passedScenarios / total]);
     data.push(['']); // Empty row
 
     // Tags summary if available
@@ -172,7 +169,7 @@ export class ExcelExporter {
       data.push(['Tag Summary']);
       data.push(['Tag', 'Count', 'Pass Rate']);
       result.tags.forEach(tag => {
-        data.push([tag.name, tag.count, tag.passRate]);
+        data.push([tag, '', '']); // Tags in ExecutionResult are just strings
       });
     }
 
@@ -180,7 +177,7 @@ export class ExcelExporter {
     XLSX.utils.sheet_add_aoa(ws, data);
 
     // Apply cell styles and formatting
-    this.applySummaryFormatting(ws, data.length, options);
+    this.applySummaryFormatting(ws, data.length, options, data);
 
     // Set column widths
     ws['!cols'] = [
@@ -193,7 +190,7 @@ export class ExcelExporter {
     XLSX.utils.book_append_sheet(this.workbook!, ws, 'Summary');
   }
 
-  private applySummaryFormatting(ws: XLSX.WorkSheet, rowCount: number, options: ExcelExportOptions): void {
+  private applySummaryFormatting(ws: XLSX.WorkSheet, rowCount: number, options: ExcelExportOptions, data: any[][]): void {
     // Title formatting
     this.setCellStyle(ws, 'A1', {
       font: { bold: true, sz: 18, color: { rgb: this.brandColor.substring(1) } },
@@ -265,7 +262,7 @@ export class ExcelExporter {
     }
 
     // Overall pass rate formatting
-    const passRateRow = data.findIndex(row => row[0] === 'Overall Pass Rate') + 1;
+    const passRateRow = data.findIndex((row: any[]) => row[0] === 'Overall Pass Rate') + 1;
     if (passRateRow > 0) {
       this.setCellStyle(ws, `A${passRateRow}`, {
         font: { bold: true, sz: 12 }
@@ -339,14 +336,14 @@ export class ExcelExporter {
     result.features.forEach(feature => {
       feature.scenarios.forEach(scenario => {
         data.push([
-          feature.name,
+          feature.feature,
           scenario.name,
           scenario.status.toUpperCase(),
           this.formatDuration(scenario.duration),
-          new Date(scenario.startTime),
-          new Date(scenario.endTime),
-          scenario.tags.join(', '),
-          scenario.error ? this.truncateText(scenario.error, this.maxCellLength) : ''
+          '', // ScenarioSummary doesn't have startTime
+          '', // ScenarioSummary doesn't have endTime
+          '', // ScenarioSummary doesn't have tags
+          '' // ScenarioSummary doesn't have error
         ]);
       });
     });
@@ -475,7 +472,7 @@ export class ExcelExporter {
       const avgDuration = total > 0 ? totalDuration / total : 0;
 
       data.push([
-        feature.name,
+        feature.feature,
         total,
         passed,
         failed,
@@ -487,10 +484,10 @@ export class ExcelExporter {
     });
 
     // Add totals row
-    const totalScenarios = result.summary.totalScenarios;
-    const totalPassed = result.summary.passed;
-    const totalFailed = result.summary.failed;
-    const totalSkipped = result.summary.skipped;
+    const totalScenarios = result.totalScenarios;
+    const totalPassed = result.passedScenarios;
+    const totalFailed = result.failedScenarios;
+    const totalSkipped = result.skippedScenarios;
     const overallPassRate = totalScenarios > 0 ? totalPassed / totalScenarios : 0;
     
     data.push([
@@ -648,32 +645,43 @@ export class ExcelExporter {
     const data: any[][] = [headers];
     let currentRow = 2;
 
-    // Add step data with proper pagination
-    result.features.forEach(feature => {
-      feature.scenarios.forEach(scenario => {
-        scenario.steps.forEach((step, stepIndex) => {
-          // Check if we need to create a new sheet due to row limit
-          if (options.maxRowsPerSheet && currentRow > options.maxRowsPerSheet) {
-            // Create continuation sheet
-            this.createStepDetailsContinuation(data, currentRow - 1);
-            data.length = 1; // Keep headers
-            currentRow = 2;
-          }
-
+    // Add step data from scenarios if available
+    const scenarios = result.scenarios || [];
+    for (const scenario of scenarios) {
+      if (scenario.steps && scenario.steps.length > 0) {
+        // Find the feature this scenario belongs to
+        const feature = result.features.find(f => f.featureId === scenario.featureId);
+        const featureName = feature?.feature || scenario.feature || 'Unknown Feature';
+        
+        scenario.steps.forEach((step, index) => {
           data.push([
-            feature.name,
-            scenario.name,
-            stepIndex + 1,
+            featureName,
+            scenario.scenario,
+            index + 1,
             step.keyword,
-            this.truncateText(step.text, 255),
+            step.text,
             step.status.toUpperCase(),
-            step.duration ? `${step.duration}ms` : '0ms',
-            step.error ? this.truncateText(step.error, this.maxCellLength) : ''
+            this.formatDuration(step.duration),
+            step.result?.error?.message || ''
           ]);
           currentRow++;
+          
+          // Check if we need pagination
+          if (options.maxRowsPerSheet && currentRow > options.maxRowsPerSheet) {
+            this.createStepDetailsContinuation(data, currentRow);
+            // Reset for new sheet
+            data.length = 1;
+            data[0] = headers;
+            currentRow = 2;
+          }
         });
-      });
-    });
+      }
+    }
+
+    // If no step data was added, add a placeholder row
+    if (data.length === 1) {
+      data.push(['No step details available', '', '', '', '', '', '', '']);
+    }
 
     const ws = XLSX.utils.aoa_to_sheet(data);
     this.applyStepDetailsFormatting(ws, data.length, options);
@@ -694,7 +702,7 @@ export class ExcelExporter {
 
   private createStepDetailsContinuation(data: any[][], lastRow: number): void {
     const ws = XLSX.utils.aoa_to_sheet(data);
-    this.applyStepDetailsFormatting(ws, lastRow, { autoFilter: false, freezePanes: false });
+    this.applyStepDetailsFormatting(ws, lastRow, { format: ExportFormat.EXCEL, autoFilter: false, freezePanes: false });
     
     const sheetCount = Object.keys(this.workbook!.Sheets).filter(name => 
       name.startsWith('Step Details')
@@ -810,82 +818,51 @@ export class ExcelExporter {
     data.push(['Performance Metrics Analysis']);
     data.push([]);
     
-    // System metrics
-    if (result.metrics?.system) {
-      data.push(['System Metrics']);
-      data.push(['Metric', 'Min', 'Max', 'Average', 'P50', 'P90', 'P95', 'P99']);
-      
-      const sysMetrics = result.metrics.system;
-      data.push([
-        'CPU Usage (%)',
-        sysMetrics.cpu?.min || 0,
-        sysMetrics.cpu?.max || 0,
-        sysMetrics.cpu?.avg || 0,
-        sysMetrics.cpu?.p50 || 0,
-        sysMetrics.cpu?.p90 || 0,
-        sysMetrics.cpu?.p95 || 0,
-        sysMetrics.cpu?.p99 || 0
-      ]);
-      
-      data.push([
-        'Memory Usage (MB)',
-        Math.round(sysMetrics.memory?.min || 0),
-        Math.round(sysMetrics.memory?.max || 0),
-        Math.round(sysMetrics.memory?.avg || 0),
-        Math.round(sysMetrics.memory?.p50 || 0),
-        Math.round(sysMetrics.memory?.p90 || 0),
-        Math.round(sysMetrics.memory?.p95 || 0),
-        Math.round(sysMetrics.memory?.p99 || 0)
-      ]);
-      
-      data.push([]);
-    }
+    // Basic execution metrics from available data
+    data.push(['Execution Metrics']);
+    data.push(['Metric', 'Value']);
+    data.push(['Total Duration (ms)', result.duration]);
+    data.push(['Total Features', result.totalFeatures]);
+    data.push(['Total Scenarios', result.totalScenarios]);
+    data.push(['Total Steps', result.totalSteps]);
+    data.push(['Average Scenario Duration (ms)', result.totalScenarios > 0 ? Math.round(result.duration / result.totalScenarios) : 0]);
+    data.push(['Average Step Duration (ms)', result.totalSteps > 0 ? Math.round(result.duration / result.totalSteps) : 0]);
+    data.push([]);
     
-    // Performance metrics
-    if (result.metrics?.performance) {
-      data.push(['Web Performance Metrics']);
-      data.push(['Metric', 'Min', 'Max', 'Average', 'P50', 'P90', 'P95', 'P99']);
+    // Success metrics
+    data.push(['Success Metrics']);
+    data.push(['Metric', 'Count', 'Percentage']);
+    data.push(['Passed Features', result.passedFeatures, result.totalFeatures > 0 ? (result.passedFeatures / result.totalFeatures * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Passed Scenarios', result.passedScenarios, result.totalScenarios > 0 ? (result.passedScenarios / result.totalScenarios * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Passed Steps', result.passedSteps, result.totalSteps > 0 ? (result.passedSteps / result.totalSteps * 100).toFixed(2) + '%' : '0%']);
+    data.push([]);
+    
+    // Failure metrics
+    data.push(['Failure Analysis']);
+    data.push(['Metric', 'Count', 'Percentage']);
+    data.push(['Failed Features', result.failedFeatures, result.totalFeatures > 0 ? (result.failedFeatures / result.totalFeatures * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Failed Scenarios', result.failedScenarios, result.totalScenarios > 0 ? (result.failedScenarios / result.totalScenarios * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Failed Steps', result.failedSteps, result.totalSteps > 0 ? (result.failedSteps / result.totalSteps * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Skipped Features', result.skippedFeatures, result.totalFeatures > 0 ? (result.skippedFeatures / result.totalFeatures * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Skipped Scenarios', result.skippedScenarios, result.totalScenarios > 0 ? (result.skippedScenarios / result.totalScenarios * 100).toFixed(2) + '%' : '0%']);
+    data.push(['Skipped Steps', result.skippedSteps, result.totalSteps > 0 ? (result.skippedSteps / result.totalSteps * 100).toFixed(2) + '%' : '0%']);
+    data.push([]);
+    
+    // Environment info if available
+    if (result.metadata) {
+      data.push(['Environment Information']);
+      data.push(['Property', 'Value']);
+      data.push(['Environment', result.environment]);
+      data.push(['Execution ID', result.executionId]);
+      data.push(['Start Time', new Date(result.startTime).toLocaleString()]);
+      data.push(['End Time', new Date(result.endTime).toLocaleString()]);
       
-      const perfMetrics = result.metrics.performance;
-      const metrics = [
-        { name: 'Page Load Time (ms)', data: perfMetrics.pageLoadTime },
-        { name: 'First Contentful Paint (ms)', data: perfMetrics.firstContentfulPaint },
-        { name: 'Largest Contentful Paint (ms)', data: perfMetrics.largestContentfulPaint },
-        { name: 'Time to Interactive (ms)', data: perfMetrics.timeToInteractive },
-        { name: 'Total Blocking Time (ms)', data: perfMetrics.totalBlockingTime },
-        { name: 'Cumulative Layout Shift', data: perfMetrics.cumulativeLayoutShift }
-      ];
-      
-      metrics.forEach(metric => {
-        if (metric.data) {
-          data.push([
-            metric.name,
-            metric.data.min || 0,
-            metric.data.max || 0,
-            metric.data.avg || 0,
-            metric.data.p50 || 0,
-            metric.data.p90 || 0,
-            metric.data.p95 || 0,
-            metric.data.p99 || 0
-          ]);
+      // Add any additional metadata
+      Object.entries(result.metadata).forEach(([key, value]) => {
+        if (typeof value === 'string' || typeof value === 'number') {
+          data.push([key, value]);
         }
       });
-      
-      data.push([]);
-    }
-    
-    // Network metrics
-    if (result.metrics?.network) {
-      data.push(['Network Metrics']);
-      data.push(['Metric', 'Value']);
-      
-      const netMetrics = result.metrics.network;
-      data.push(['Total Requests', netMetrics.totalRequests || 0]);
-      data.push(['Failed Requests', netMetrics.failedRequests || 0]);
-      data.push(['Total Data Downloaded (MB)', Math.round((netMetrics.totalBytes || 0) / 1024 / 1024)]);
-      data.push(['Average Response Time (ms)', Math.round(netMetrics.avgResponseTime || 0)]);
-      
-      data.push([]);
     }
 
     const ws = XLSX.utils.aoa_to_sheet(data);
@@ -900,8 +877,7 @@ export class ExcelExporter {
     XLSX.utils.book_append_sheet(this.workbook!, ws, 'Metrics');
   }
 
-  private applyMetricsFormatting(ws: XLSX.WorkSheet, data: any[][], options: ExcelExportOptions): void {
-    let currentRow = 1;
+  private applyMetricsFormatting(ws: XLSX.WorkSheet, data: any[][], _options: ExcelExportOptions): void {
     
     // Title formatting
     this.setCellStyle(ws, 'A1', {
@@ -933,7 +909,7 @@ export class ExcelExporter {
         });
       } else if (row.length > 1 && typeof row[1] === 'number') {
         // Data rows - format numbers
-        const rowNum = index + 1;
+        // const rowNum = index + 1; // Not needed
         for (let col = 1; col < row.length; col++) {
           const cellAddr = XLSX.utils.encode_cell({ r: index, c: col });
           if (ws[cellAddr] && typeof ws[cellAddr].v === 'number') {
@@ -967,33 +943,65 @@ export class ExcelExporter {
     result: ExecutionResult,
     options: ExcelExportOptions
   ): Promise<void> {
-    const headers = ['Scenario', 'Page URL', 'Load Time', 'FCP', 'LCP', 'TTI', 'TBT', 'CLS', 'Score'];
+    const headers = ['Scenario', 'Feature', 'Duration (ms)', 'Status', 'Pass Rate', 'Retry Count', 'Tags', 'Error Count', 'Performance'];
     const data: any[][] = [headers];
 
-    // Collect performance data from scenarios
-    result.features.forEach(feature => {
-      feature.scenarios.forEach(scenario => {
-        if (scenario.performance && scenario.performance.length > 0) {
-          scenario.performance.forEach(perf => {
-            const score = this.calculatePerformanceScore(perf.metrics);
-            data.push([
-              scenario.name,
-              perf.url || perf.page || 'N/A',
-              perf.metrics.pageLoadTime || 0,
-              perf.metrics.firstContentfulPaint || 0,
-              perf.metrics.largestContentfulPaint || 0,
-              perf.metrics.timeToInteractive || 0,
-              perf.metrics.totalBlockingTime || 0,
-              perf.metrics.cumulativeLayoutShift || 0,
-              score
-            ]);
-          });
-        }
+    // Analyze scenario performance from available data
+    const scenarios = result.scenarios || [];
+    
+    for (const scenario of scenarios) {
+      const feature = result.features.find(f => f.featureId === scenario.featureId);
+      const featureName = feature?.feature || scenario.feature || 'Unknown';
+      
+      // Calculate scenario-level metrics
+      let errorCount = 0;
+      let passRate = 0;
+      
+      if (scenario.steps && scenario.steps.length > 0) {
+        const passedSteps = scenario.steps.filter(s => s.status === TestStatus.PASSED).length;
+        passRate = (passedSteps / scenario.steps.length) * 100;
+        errorCount = scenario.steps.filter(s => s.status === TestStatus.FAILED).length;
+      }
+      
+      // Performance categorization based on duration
+      let performance = 'Good';
+      if (scenario.duration > 10000) performance = 'Slow';
+      else if (scenario.duration > 5000) performance = 'Average';
+      else if (scenario.duration < 1000) performance = 'Excellent';
+      
+      data.push([
+        scenario.scenario,
+        featureName,
+        scenario.duration,
+        scenario.status.toUpperCase(),
+        passRate.toFixed(2) + '%',
+        scenario.retryCount || 0,
+        scenario.tags?.join(', ') || '',
+        errorCount,
+        performance
+      ]);
+    }
+
+    // If no scenarios, use feature summary data
+    if (data.length === 1 && result.features.length > 0) {
+      result.features.forEach(feature => {
+        feature.scenarios.forEach(scenario => {
+          data.push([
+            scenario.name,
+            feature.feature,
+            scenario.duration,
+            scenario.status.toUpperCase(),
+            '0%', // No step data in ScenarioSummary
+            scenario.retryCount || 0,
+            '',   // No tags in ScenarioSummary
+            0,    // No error count available
+            scenario.duration > 10000 ? 'Slow' : scenario.duration > 5000 ? 'Average' : scenario.duration < 1000 ? 'Excellent' : 'Good'
+          ]);
+        });
       });
-    });
+    }
 
     if (data.length === 1) {
-      // No performance data, add placeholder
       data.push(['No performance data available', '', '', '', '', '', '', '', '']);
     }
 
@@ -1002,55 +1010,19 @@ export class ExcelExporter {
 
     ws['!cols'] = [
       { wch: 40 }, // Scenario
-      { wch: 50 }, // URL
-      { wch: 12 }, // Load Time
-      { wch: 12 }, // FCP
-      { wch: 12 }, // LCP
-      { wch: 12 }, // TTI
-      { wch: 12 }, // TBT
-      { wch: 12 }, // CLS
-      { wch: 12 }  // Score
+      { wch: 30 }, // Feature
+      { wch: 15 }, // Duration
+      { wch: 10 }, // Status
+      { wch: 12 }, // Pass Rate
+      { wch: 12 }, // Retry Count
+      { wch: 20 }, // Tags
+      { wch: 12 }, // Error Count
+      { wch: 12 }  // Performance
     ];
 
     XLSX.utils.book_append_sheet(this.workbook!, ws, 'Performance');
   }
 
-  private calculatePerformanceScore(metrics: any): number {
-    // Simplified Lighthouse-like scoring
-    let score = 100;
-    
-    // FCP scoring (15% weight)
-    if (metrics.firstContentfulPaint) {
-      if (metrics.firstContentfulPaint > 3000) score -= 15;
-      else if (metrics.firstContentfulPaint > 1800) score -= 7;
-    }
-    
-    // LCP scoring (25% weight)
-    if (metrics.largestContentfulPaint) {
-      if (metrics.largestContentfulPaint > 4000) score -= 25;
-      else if (metrics.largestContentfulPaint > 2500) score -= 12;
-    }
-    
-    // TBT scoring (30% weight)
-    if (metrics.totalBlockingTime) {
-      if (metrics.totalBlockingTime > 600) score -= 30;
-      else if (metrics.totalBlockingTime > 300) score -= 15;
-    }
-    
-    // CLS scoring (15% weight)
-    if (metrics.cumulativeLayoutShift) {
-      if (metrics.cumulativeLayoutShift > 0.25) score -= 15;
-      else if (metrics.cumulativeLayoutShift > 0.1) score -= 7;
-    }
-    
-    // TTI scoring (15% weight)
-    if (metrics.timeToInteractive) {
-      if (metrics.timeToInteractive > 7300) score -= 15;
-      else if (metrics.timeToInteractive > 3800) score -= 7;
-    }
-    
-    return Math.max(0, score);
-  }
 
   private applyPerformanceFormatting(ws: XLSX.WorkSheet, rowCount: number, options: ExcelExportOptions): void {
     // Header formatting
@@ -1066,66 +1038,86 @@ export class ExcelExporter {
 
     // Format data rows
     for (let row = 2; row <= rowCount; row++) {
-      // Format metric values
-      for (let col = 2; col <= 7; col++) {
-        const cellAddr = XLSX.utils.encode_cell({ r: row - 1, c: col });
-        const cell = ws[cellAddr];
+      // Format duration (column C)
+      const durationCell = ws[`C${row}`];
+      if (durationCell && typeof durationCell.v === 'number') {
+        durationCell.t = 'n';
+        durationCell.z = '#,##0';
         
-        if (cell && typeof cell.v === 'number') {
-          cell.t = 'n';
-          cell.z = '#,##0';
-          
-          // Apply color coding based on thresholds
-          const value = cell.v as number;
-          let color = '008000'; // Green
-          
-          if (col === 2 || col === 3 || col === 4 || col === 5) { // Time metrics
-            if (value > 3000) color = 'FF0000'; // Red
-            else if (value > 1000) color = 'FFA500'; // Orange
-          } else if (col === 6) { // TBT
-            if (value > 600) color = 'FF0000';
-            else if (value > 300) color = 'FFA500';
-          } else if (col === 7) { // CLS
-            if (value > 0.25) color = 'FF0000';
-            else if (value > 0.1) color = 'FFA500';
-          }
-          
-          this.setCellStyle(ws, cellAddr, {
-            font: { color: { rgb: color } }
-          });
-        }
+        const duration = durationCell.v as number;
+        let color = '008000'; // Green
+        if (duration > 10000) color = 'FF0000'; // Red
+        else if (duration > 5000) color = 'FFA500'; // Orange
+        
+        this.setCellStyle(ws, `C${row}`, {
+          font: { color: { rgb: color } }
+        });
       }
       
-      // Format score
-      const scoreCell = ws[`I${row}`];
-      if (scoreCell && typeof scoreCell.v === 'number') {
-        scoreCell.t = 'n';
-        scoreCell.z = '0';
-        
-        const score = scoreCell.v as number;
+      // Format status (column D)
+      const statusCell = ws[`D${row}`];
+      if (statusCell) {
+        const status = statusCell.v as string;
         let style: any = {
           font: { bold: true },
           alignment: { horizontal: 'center' }
         };
         
-        if (score >= 90) {
-          style.font.color = { rgb: '008000' };
-          style.fill = { fgColor: { rgb: 'E8F5E9' } };
-        } else if (score >= 50) {
-          style.font.color = { rgb: 'FFA500' };
-          style.fill = { fgColor: { rgb: 'FFF3E0' } };
-        } else {
-          style.font.color = { rgb: 'FF0000' };
-          style.fill = { fgColor: { rgb: 'FFEBEE' } };
+        switch (status) {
+          case 'PASSED':
+            style.font.color = { rgb: '008000' };
+            style.fill = { fgColor: { rgb: 'E8F5E9' } };
+            break;
+          case 'FAILED':
+            style.font.color = { rgb: 'FF0000' };
+            style.fill = { fgColor: { rgb: 'FFEBEE' } };
+            break;
+          case 'SKIPPED':
+            style.font.color = { rgb: 'FFA500' };
+            style.fill = { fgColor: { rgb: 'FFF3E0' } };
+            break;
+        }
+        
+        this.setCellStyle(ws, `D${row}`, style);
+      }
+      
+      // Format pass rate (column E)
+      const passRateCell = ws[`E${row}`];
+      if (passRateCell) {
+        this.setCellStyle(ws, `E${row}`, {
+          alignment: { horizontal: 'center' }
+        });
+      }
+      
+      // Format performance rating (column I)
+      const perfCell = ws[`I${row}`];
+      if (perfCell) {
+        const perf = perfCell.v as string;
+        let style: any = {
+          font: { bold: true },
+          alignment: { horizontal: 'center' }
+        };
+        
+        switch (perf) {
+          case 'Excellent':
+            style.font.color = { rgb: '008000' };
+            style.fill = { fgColor: { rgb: 'E8F5E9' } };
+            break;
+          case 'Good':
+            style.font.color = { rgb: '4CAF50' };
+            break;
+          case 'Average':
+            style.font.color = { rgb: 'FFA500' };
+            style.fill = { fgColor: { rgb: 'FFF3E0' } };
+            break;
+          case 'Slow':
+            style.font.color = { rgb: 'FF0000' };
+            style.fill = { fgColor: { rgb: 'FFEBEE' } };
+            break;
         }
         
         this.setCellStyle(ws, `I${row}`, style);
       }
-      
-      // Wrap URL text
-      this.setCellStyle(ws, `B${row}`, {
-        alignment: { wrapText: true }
-      });
       
       // Add borders
       for (let col = 0; col < 9; col++) {
@@ -1152,32 +1144,67 @@ export class ExcelExporter {
     const headers = ['Timestamp', 'Level', 'Source', 'Category', 'Message'];
     const data: any[][] = [headers];
     
-    if (result.logs && result.logs.length > 0) {
-      // Limit logs to prevent huge files
-      const maxLogs = options.maxRowsPerSheet || 50000;
-      const logs = result.logs.slice(0, maxLogs);
-      
-      logs.forEach(log => {
+    // Extract error information from failed scenarios and steps
+    const scenarios = result.scenarios || [];
+    const maxLogs = options.maxRowsPerSheet || 50000;
+    let logCount = 0;
+    
+    for (const scenario of scenarios) {
+      // Add scenario-level errors
+      if (scenario.status === TestStatus.FAILED && scenario.error) {
         data.push([
-          new Date(log.timestamp),
-          log.level.toUpperCase(),
-          log.source || 'Unknown',
-          log.category || 'General',
-          this.truncateText(log.message, this.maxCellLength)
+          new Date(scenario.startTime),
+          'ERROR',
+          `Scenario: ${scenario.scenario}`,
+          'Test Execution',
+          this.truncateText(scenario.error.message, this.maxCellLength)
         ]);
-      });
-      
-      if (result.logs.length > maxLogs) {
-        data.push([
-          new Date(),
-          'INFO',
-          'System',
-          'Truncation',
-          `Log truncated. Showing ${maxLogs} of ${result.logs.length} total entries.`
-        ]);
+        logCount++;
+        
+        if (logCount >= maxLogs) break;
       }
-    } else {
-      data.push([new Date(), 'INFO', 'System', 'No Data', 'No logs available for this execution']);
+      
+      // Add step-level errors if available
+      if (scenario.steps) {
+        for (const step of scenario.steps) {
+          if (step.status === TestStatus.FAILED && step.result?.error) {
+            data.push([
+              new Date(step.startTime),
+              'ERROR',
+              `Step: ${step.keyword} ${step.text}`,
+              'Step Execution',
+              this.truncateText(step.result.error.message, this.maxCellLength)
+            ]);
+            logCount++;
+            
+            if (logCount >= maxLogs) break;
+          }
+        }
+      }
+      
+      if (logCount >= maxLogs) break;
+    }
+    
+    // Add execution summary log
+    data.push([
+      new Date(result.startTime),
+      'INFO',
+      'Test Framework',
+      'Execution',
+      `Test execution started: ${result.totalScenarios} scenarios, ${result.totalSteps} steps`
+    ]);
+    
+    data.push([
+      new Date(result.endTime),
+      'INFO',
+      'Test Framework',
+      'Execution',
+      `Test execution completed: ${result.passedScenarios} passed, ${result.failedScenarios} failed, ${result.skippedScenarios} skipped`
+    ]);
+    
+    // If no logs were added, add a default message
+    if (data.length === 1) {
+      data.push([new Date(), 'INFO', 'System', 'No Data', 'No error logs available for this execution']);
     }
 
     const ws = XLSX.utils.aoa_to_sheet(data);
@@ -1282,44 +1309,88 @@ export class ExcelExporter {
     const headers = ['Feature', 'Scenario', 'Step', 'Type', 'Status', 'Timestamp', 'File Path', 'Description'];
     const data: any[][] = [headers];
 
-    // Collect screenshot references
-    result.features.forEach(feature => {
-      feature.scenarios.forEach(scenario => {
-        // Scenario screenshots
-        if (scenario.screenshots) {
-          scenario.screenshots.forEach(screenshot => {
-            data.push([
-              feature.name,
-              scenario.name,
-              'Scenario',
-              screenshot.type || 'screenshot',
-              scenario.status,
-              new Date(screenshot.timestamp),
-              screenshot.path,
-              screenshot.description || 'Scenario screenshot'
-            ]);
-          });
-        }
-        
-        // Step screenshots
+    // Create screenshot references for failed scenarios
+    const scenarios = result.scenarios || [];
+    const screenshotDir = ConfigurationManager.get('SCREENSHOT_PATH', './evidence/screenshots');
+    
+    for (const scenario of scenarios) {
+      const feature = result.features.find(f => f.featureId === scenario.featureId);
+      const featureName = feature?.feature || scenario.feature || 'Unknown';
+      
+      // Add scenario-level screenshot references for failures
+      if (scenario.status === TestStatus.FAILED) {
+        const screenshotPath = path.join(screenshotDir, result.executionId, `${scenario.scenarioId}_failure.png`);
+        data.push([
+          featureName,
+          scenario.scenario,
+          'Scenario',
+          'failure',
+          scenario.status.toUpperCase(),
+          new Date(scenario.endTime),
+          screenshotPath,
+          `Failure screenshot for scenario: ${scenario.scenario}`
+        ]);
+      }
+      
+      // Add step-level screenshot references if steps are available
+      if (scenario.steps) {
         scenario.steps.forEach((step, stepIndex) => {
-          if (step.screenshots && step.screenshots.length > 0) {
-            step.screenshots.forEach(screenshot => {
-              data.push([
-                feature.name,
-                scenario.name,
-                `Step ${stepIndex + 1}: ${this.truncateText(step.text, 50)}`,
-                screenshot.type || 'screenshot',
-                step.status,
-                new Date(screenshot.timestamp),
-                screenshot.path,
-                screenshot.description || 'Step screenshot'
-              ]);
+          if (step.status === TestStatus.FAILED) {
+            const stepScreenshotPath = path.join(screenshotDir, result.executionId, `${scenario.scenarioId}_step${stepIndex + 1}_failure.png`);
+            data.push([
+              featureName,
+              scenario.scenario,
+              `Step ${stepIndex + 1}: ${this.truncateText(step.text, 50)}`,
+              'failure',
+              step.status.toUpperCase(),
+              new Date(step.endTime),
+              stepScreenshotPath,
+              `Failure screenshot for step: ${step.keyword} ${step.text}`
+            ]);
+          }
+          
+          // Check for embeddings that might contain screenshots
+          if (step.embeddings && step.embeddings.length > 0) {
+            step.embeddings.forEach((embedding, embIndex) => {
+              if (embedding.mimeType && embedding.mimeType.startsWith('image/')) {
+                const embeddingPath = path.join(screenshotDir, result.executionId, `${scenario.scenarioId}_step${stepIndex + 1}_embed${embIndex + 1}.png`);
+                data.push([
+                  featureName,
+                  scenario.scenario,
+                  `Step ${stepIndex + 1}: ${this.truncateText(step.text, 50)}`,
+                  'embedded',
+                  step.status.toUpperCase(),
+                  new Date(step.endTime),
+                  embeddingPath,
+                  embedding.name || 'Embedded screenshot'
+                ]);
+              }
             });
           }
         });
+      }
+    }
+    
+    // If we have scenario summaries only, generate potential screenshot paths
+    if (data.length === 1 && result.features.length > 0) {
+      result.features.forEach(feature => {
+        feature.scenarios.forEach(scenario => {
+          if (scenario.status === 'failed') {
+            const screenshotPath = path.join(screenshotDir, result.executionId, `${scenario.scenarioId}_failure.png`);
+            data.push([
+              feature.feature,
+              scenario.name,
+              'Scenario',
+              'failure',
+              scenario.status.toUpperCase(),
+              '',
+              screenshotPath,
+              `Potential failure screenshot for scenario: ${scenario.name}`
+            ]);
+          }
+        });
       });
-    });
+    }
 
     if (data.length === 1) {
       data.push(['No screenshots captured', '', '', '', '', '', '', '']);
@@ -1416,19 +1487,16 @@ export class ExcelExporter {
 
   private async addChartsSheet(
     result: ExecutionResult,
-    options: ExcelExportOptions
+    _options: ExcelExportOptions
   ): Promise<void> {
-    // Excel charts require complex XML manipulation that xlsx doesn't support directly
-    // Instead, we'll create a data sheet formatted for easy chart creation
-    
     const data: any[][] = [];
     
     // Chart 1: Test Results Summary
     data.push(['Test Results Summary']);
     data.push(['Status', 'Count']);
-    data.push(['Passed', result.summary.passed]);
-    data.push(['Failed', result.summary.failed]);
-    data.push(['Skipped', result.summary.skipped]);
+    data.push(['Passed', result.passedScenarios]);
+    data.push(['Failed', result.failedScenarios]);
+    data.push(['Skipped', result.skippedScenarios]);
     data.push([]);
     
     // Chart 2: Feature Pass Rates
@@ -1438,7 +1506,7 @@ export class ExcelExporter {
       const total = feature.scenarios.length;
       const passed = feature.scenarios.filter(s => s.status === 'passed').length;
       const passRate = total > 0 ? passed / total : 0;
-      data.push([feature.name, passRate]);
+      data.push([feature.feature, passRate]);
     });
     data.push([]);
     
@@ -1447,27 +1515,66 @@ export class ExcelExporter {
     data.push(['Feature', 'Duration (seconds)']);
     result.features.forEach(feature => {
       const totalDuration = feature.scenarios.reduce((sum, s) => sum + s.duration, 0);
-      data.push([feature.name, totalDuration / 1000]);
+      data.push([feature.feature, totalDuration / 1000]);
     });
     data.push([]);
     
-    // Chart 4: Performance Metrics (if available)
-    if (result.metrics?.performance) {
-      data.push(['Average Performance Metrics']);
-      data.push(['Metric', 'Value (ms)']);
-      const perf = result.metrics.performance;
-      data.push(['Page Load Time', perf.pageLoadTime?.avg || 0]);
-      data.push(['First Contentful Paint', perf.firstContentfulPaint?.avg || 0]);
-      data.push(['Largest Contentful Paint', perf.largestContentfulPaint?.avg || 0]);
-      data.push(['Time to Interactive', perf.timeToInteractive?.avg || 0]);
-      data.push(['Total Blocking Time', perf.totalBlockingTime?.avg || 0]);
+    // Chart 4: Test Execution Timeline
+    data.push(['Test Execution Timeline']);
+    data.push(['Time Period', 'Tests Run', 'Pass Rate']);
+    
+    // Create hourly buckets if we have scenario data
+    const scenarios = result.scenarios || [];
+    if (scenarios.length > 0) {
+      const hourlyData = new Map<number, { total: number; passed: number }>();
+      
+      scenarios.forEach(scenario => {
+        const hour = new Date(scenario.startTime).getHours();
+        const existing = hourlyData.get(hour) || { total: 0, passed: 0 };
+        existing.total++;
+        if (scenario.status === TestStatus.PASSED) existing.passed++;
+        hourlyData.set(hour, existing);
+      });
+      
+      Array.from(hourlyData.entries())
+        .sort((a, b) => a[0] - b[0])
+        .forEach(([hour, stats]) => {
+          const passRate = stats.total > 0 ? stats.passed / stats.total : 0;
+          data.push([`${hour}:00-${hour + 1}:00`, stats.total, passRate]);
+        });
+    } else {
+      // Use start/end time for simple timeline
+      const startHour = new Date(result.startTime).getHours();
+      const endHour = new Date(result.endTime).getHours();
+      const passRate = result.totalScenarios > 0 ? result.passedScenarios / result.totalScenarios : 0;
+      data.push([`${startHour}:00-${endHour}:00`, result.totalScenarios, passRate]);
     }
+    data.push([]);
+    
+    // Chart 5: Top 10 Slowest Scenarios
+    data.push(['Top 10 Slowest Scenarios']);
+    data.push(['Scenario', 'Duration (seconds)']);
+    
+    const allScenarios: Array<{ name: string; duration: number }> = [];
+    result.features.forEach(feature => {
+      feature.scenarios.forEach(scenario => {
+        allScenarios.push({ name: scenario.name, duration: scenario.duration });
+      });
+    });
+    
+    allScenarios
+      .sort((a, b) => b.duration - a.duration)
+      .slice(0, 10)
+      .forEach(scenario => {
+        data.push([this.truncateText(scenario.name, 40), scenario.duration / 1000]);
+      });
 
     const ws = XLSX.utils.aoa_to_sheet(data);
     this.applyChartsFormatting(ws, data);
 
     ws['!cols'] = [
       { wch: 40 },
+      { wch: 20 },
       { wch: 20 }
     ];
 
@@ -1480,7 +1587,6 @@ export class ExcelExporter {
   }
 
   private applyChartsFormatting(ws: XLSX.WorkSheet, data: any[][]): void {
-    let currentRow = 1;
     
     data.forEach((row, index) => {
       if (row.length === 1) {
@@ -1606,7 +1712,7 @@ export class ExcelExporter {
 
   async exportStream(
     result: ExecutionResult,
-    options: ExcelExportOptions = {}
+    options: ExcelExportOptions = { format: ExportFormat.EXCEL }
   ): Promise<Readable> {
     // Generate the Excel file in memory
     const buffer = await this.generateBuffer(result, options);
@@ -1681,9 +1787,8 @@ export class ExcelExporter {
     result: ExecutionResult,
     outputPath: string,
     sheetNames: string[],
-    options: ExcelExportOptions = {}
+    options: ExcelExportOptions = { format: ExportFormat.EXCEL }
   ): Promise<ExportResult> {
-    const startTime = Date.now();
     
     try {
       this.logger.info('Starting partial Excel export', { outputPath, sheets: sheetNames });
@@ -1755,25 +1860,17 @@ export class ExcelExporter {
 
       return {
         success: true,
-        outputPath,
-        format: 'excel',
-        exportTime: Date.now() - startTime,
-        fileSize: fileStats.size,
-        metadata: {
-          sheets: Object.keys(this.workbook.Sheets).length,
-          partial: true,
-          requestedSheets: sheetNames
-        }
+        filePath: outputPath,
+        format: ExportFormat.EXCEL,
+        size: fileStats.size
       };
 
     } catch (error) {
-      this.logger.error('Partial Excel export failed', error);
+      this.logger.error('Partial Excel export failed', error as Error);
       return {
         success: false,
-        outputPath,
-        format: 'excel',
-        exportTime: Date.now() - startTime,
-        error: error.message
+        format: ExportFormat.EXCEL,
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }

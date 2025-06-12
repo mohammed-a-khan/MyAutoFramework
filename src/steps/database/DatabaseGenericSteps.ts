@@ -4,104 +4,109 @@ import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { CSDatabase } from '../../database/client/CSDatabase';
 import { DatabaseContext } from '../../database/context/DatabaseContext';
-import { ConnectionManager } from '../../database/client/ConnectionManager';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
 import { ActionLogger } from '../../core/logging/ActionLogger';
-import { DatabaseConfig } from '../../database/types/database.types';
-import { ResultSet } from '../../database/types/database.types';
+import { DatabaseConfig, ResultSet } from '../../database/types/database.types';
 
 export class DatabaseGenericSteps extends CSBDDBaseStepDefinition {
     private databaseContext: DatabaseContext;
-    private connectionManager: ConnectionManager;
     private currentDatabase: CSDatabase | null = null;
+    private databases: Map<string, CSDatabase> = new Map();
 
     constructor() {
         super();
-        this.databaseContext = this.context.getDatabaseContext();
-        this.connectionManager = ConnectionManager.getInstance();
+        this.databaseContext = new DatabaseContext();
     }
 
     @CSBDDStepDef('user connects to {string} database')
     @CSBDDStepDef('user connects to database {string}')
     async connectToDatabase(databaseAlias: string): Promise<void> {
-        ActionLogger.logDatabaseAction('connect', { databaseAlias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('connectToDatabase', { databaseAlias });
 
         try {
             // Get database configuration
             const config = this.getDatabaseConfig(databaseAlias);
             
             // Create and connect to database
-            this.currentDatabase = await CSDatabase.create(config);
-            await this.currentDatabase.connect(config);
+            this.currentDatabase = await CSDatabase.getInstance(databaseAlias);
+            await this.currentDatabase.connect();
 
             // Store in context
-            this.databaseContext.setCurrentDatabase(databaseAlias, this.currentDatabase);
-            this.databaseContext.setCurrentDatabaseAlias(databaseAlias);
+            this.databases.set(databaseAlias, this.currentDatabase);
+            const connection = await this.currentDatabase.getConnection();
+            const adapter = this.currentDatabase.getAdapter();
+            this.databaseContext.setActiveConnection(databaseAlias, adapter, connection);
 
-            ActionLogger.logDatabaseAction('connected', { 
-                databaseAlias,
+            await actionLogger.logDatabase('connected', databaseAlias, 0, undefined, { 
                 host: config.host,
                 database: config.database,
                 type: config.type
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('connection_failed', error);
-            throw new Error(`Failed to connect to database '${databaseAlias}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { operation: 'connection_failed' });
+            throw new Error(`Failed to connect to database '${databaseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user connects to {string} database with timeout {int} seconds')
     async connectToDatabaseWithTimeout(databaseAlias: string, timeout: number): Promise<void> {
-        ActionLogger.logDatabaseAction('connect_with_timeout', { databaseAlias, timeout });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('connectWithTimeout', { databaseAlias, timeout });
 
         try {
             const config = this.getDatabaseConfig(databaseAlias);
             config.connectionTimeout = timeout * 1000;
 
-            this.currentDatabase = await CSDatabase.create(config);
-            await this.currentDatabase.connect(config);
+            this.currentDatabase = await CSDatabase.getInstance(databaseAlias);
+            await this.currentDatabase.connect();
 
-            this.databaseContext.setCurrentDatabase(databaseAlias, this.currentDatabase);
-            this.databaseContext.setCurrentDatabaseAlias(databaseAlias);
+            this.databases.set(databaseAlias, this.currentDatabase);
+            const connection = await this.currentDatabase.getConnection();
+            const adapter = this.currentDatabase.getAdapter();
+            this.databaseContext.setActiveConnection(databaseAlias, adapter, connection);
 
-            ActionLogger.logDatabaseAction('connected_with_timeout', { databaseAlias, timeout });
+            await actionLogger.logDatabase('connected_with_timeout', databaseAlias, 0, undefined, { timeout });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('connection_timeout', error);
-            throw new Error(`Connection to '${databaseAlias}' timed out after ${timeout} seconds: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { operation: 'connection_timeout' });
+            throw new Error(`Connection to '${databaseAlias}' timed out after ${timeout} seconds: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user sets database timeout to {int} seconds')
     async setDatabaseTimeout(timeout: number): Promise<void> {
-        ActionLogger.logDatabaseAction('set_timeout', { timeout });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setDatabaseTimeout', { timeout });
 
-        const db = this.getCurrentDatabase();
-        await db.setQueryTimeout(timeout * 1000);
+        // Set timeout on the context instead
+        this.databaseContext.setQueryTimeout(timeout * 1000);
 
-        this.databaseContext.setTimeout(timeout * 1000);
-        ActionLogger.logDatabaseAction('timeout_set', { timeout });
+        await actionLogger.logDatabase('timeout_set', 'timeout', 0, undefined, { timeout });
     }
 
     @CSBDDStepDef('user sets database connection pool size to {int}')
     async setConnectionPoolSize(poolSize: number): Promise<void> {
-        ActionLogger.logDatabaseAction('set_pool_size', { poolSize });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setConnectionPoolSize', { poolSize });
 
         if (poolSize < 1 || poolSize > 100) {
             throw new Error(`Invalid pool size: ${poolSize}. Must be between 1 and 100`);
         }
 
-        const db = this.getCurrentDatabase();
-        await db.setPoolSize(poolSize);
+        // Pool size is configured during connection, cannot be changed at runtime
+        // Store for future connections
+        this.store('defaultPoolSize', poolSize);
 
-        ActionLogger.logDatabaseAction('pool_size_set', { poolSize });
+        await actionLogger.logDatabase('pool_size_set', 'pool', 0, undefined, { poolSize });
     }
 
     @CSBDDStepDef('user executes query {string}')
     @CSBDDStepDef('user runs query {string}')
     async executeQuery(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query', { query: this.sanitizeQueryForLog(query) });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('executeQuery', { query: this.sanitizeQueryForLog(query) });
 
         try {
             const db = this.getCurrentDatabase();
@@ -112,29 +117,31 @@ export class DatabaseGenericSteps extends CSBDDBaseStepDefinition {
             const executionTime = Date.now() - startTime;
 
             // Store result in context
-            this.databaseContext.setLastResult(result);
-            this.databaseContext.addQueryExecution({
-                query: interpolatedQuery,
-                executionTime,
+            this.store('lastDatabaseResult', result);
+            // Convert ResultSet to QueryResult for DatabaseContext
+            const queryResult = {
+                rows: result.rows || [],
                 rowCount: result.rowCount,
-                timestamp: new Date()
-            });
+                fields: result.fields || [],
+                command: 'QUERY',
+                duration: executionTime
+            };
+            this.databaseContext.storeResult('last', queryResult);
 
-            ActionLogger.logDatabaseAction('query_executed', {
-                rowCount: result.rowCount,
-                executionTime,
+            await actionLogger.logDatabase('query_executed', interpolatedQuery, executionTime, result.rowCount, {
                 affectedRows: result.affectedRows
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('query_execution_failed', error);
-            throw new Error(`Query execution failed: ${error.message}\nQuery: ${this.sanitizeQueryForLog(query)}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { operation: 'query_execution_failed' });
+            throw new Error(`Query execution failed: ${error instanceof Error ? error.message : String(error)}\nQuery: ${this.sanitizeQueryForLog(query)}`);
         }
     }
 
     @CSBDDStepDef('user executes query {string} and stores result as {string}')
     async executeQueryAndStore(query: string, alias: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_store', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('executeQueryAndStore', { 
             query: this.sanitizeQueryForLog(query), 
             alias 
         });
@@ -146,113 +153,116 @@ export class DatabaseGenericSteps extends CSBDDBaseStepDefinition {
             const result = await db.query(interpolatedQuery);
             
             // Store with alias
-            this.databaseContext.storeResult(alias, result);
-            this.databaseContext.setLastResult(result);
+            const queryResult = {
+                rows: result.rows || [],
+                rowCount: result.rowCount,
+                fields: result.fields || [],
+                command: 'QUERY',
+                duration: 0
+            };
+            this.databaseContext.storeResult(alias, queryResult);
+            this.store('lastDatabaseResult', result);
 
-            ActionLogger.logDatabaseAction('query_result_stored', {
-                alias,
-                rowCount: result.rowCount
+            await actionLogger.logDatabase('query_result_stored', interpolatedQuery, 0, result.rowCount, {
+                alias
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('query_store_failed', error);
-            throw new Error(`Failed to execute and store query result: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { operation: 'query_store_failed' });
+            throw new Error(`Failed to execute and store query result: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('the query result should have {int} rows')
     @CSBDDStepDef('the query result should have {int} row')
     async validateRowCount(expectedCount: number): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_row_count', { expectedCount });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateRowCount', { expectedCount });
 
         const result = this.getLastResult();
         
         if (result.rowCount !== expectedCount) {
             throw new Error(
-                `Expected ${expectedCount} row(s), but got ${result.rowCount}\n` +
-                `Query: ${this.databaseContext.getLastQuery()}`
+                `Expected ${expectedCount} row(s), but got ${result.rowCount}`
             );
         }
 
-        ActionLogger.logDatabaseAction('row_count_validated', { 
-            expected: expectedCount, 
-            actual: result.rowCount 
+        await actionLogger.logDatabase('row_count_validated', 'validation', 0, result.rowCount, { 
+            expected: expectedCount 
         });
     }
 
     @CSBDDStepDef('the query result should have at least {int} rows')
     async validateMinRowCount(minCount: number): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_min_row_count', { minCount });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateMinRowCount', { minCount });
 
         const result = this.getLastResult();
         
         if (result.rowCount < minCount) {
             throw new Error(
-                `Expected at least ${minCount} row(s), but got ${result.rowCount}\n` +
-                `Query: ${this.databaseContext.getLastQuery()}`
+                `Expected at least ${minCount} row(s), but got ${result.rowCount}`
             );
         }
 
-        ActionLogger.logDatabaseAction('min_row_count_validated', { 
-            minimum: minCount, 
-            actual: result.rowCount 
+        await actionLogger.logDatabase('min_row_count_validated', 'validation', 0, result.rowCount, { 
+            minimum: minCount 
         });
     }
 
     @CSBDDStepDef('the query result should have at most {int} rows')
     async validateMaxRowCount(maxCount: number): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_max_row_count', { maxCount });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateMaxRowCount', { maxCount });
 
         const result = this.getLastResult();
         
         if (result.rowCount > maxCount) {
             throw new Error(
-                `Expected at most ${maxCount} row(s), but got ${result.rowCount}\n` +
-                `Query: ${this.databaseContext.getLastQuery()}`
+                `Expected at most ${maxCount} row(s), but got ${result.rowCount}`
             );
         }
 
-        ActionLogger.logDatabaseAction('max_row_count_validated', { 
-            maximum: maxCount, 
-            actual: result.rowCount 
+        await actionLogger.logDatabase('max_row_count_validated', 'validation', 0, result.rowCount, { 
+            maximum: maxCount 
         });
     }
 
     @CSBDDStepDef('the query result should be empty')
     @CSBDDStepDef('the query should return no rows')
     async validateEmptyResult(): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_empty_result');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateEmptyResult', {});
 
         const result = this.getLastResult();
         
         if (result.rowCount > 0) {
             throw new Error(
-                `Expected empty result, but got ${result.rowCount} row(s)\n` +
-                `Query: ${this.databaseContext.getLastQuery()}`
+                `Expected empty result, but got ${result.rowCount} row(s)`
             );
         }
 
-        ActionLogger.logDatabaseAction('empty_result_validated');
+        await actionLogger.logDatabase('empty_result_validated', 'validation', 0, 0, {});
     }
 
     @CSBDDStepDef('user logs database query result')
     @CSBDDStepDef('user prints database query result')
     async logQueryResult(): Promise<void> {
+        const actionLogger = ActionLogger.getInstance();
         const result = this.getLastResult();
         
-        ActionLogger.logDatabaseAction('log_result', {
-            rowCount: result.rowCount,
-            columnCount: result.columns.length,
-            columns: result.columns.map(col => col.name)
+        await actionLogger.logDatabase('log_result', 'log', 0, result.rowCount, {
+            columnCount: result.columns ? result.columns.length : 0,
+            columns: result.columns ? result.columns.map(col => col.name) : []
         });
 
         // Log first 10 rows for visibility
-        const rowsToLog = Math.min(10, result.rows.length);
-        if (rowsToLog > 0) {
+        const rowsToLog = result.rows ? Math.min(10, result.rows.length) : 0;
+        if (rowsToLog > 0 && result.rows) {
             console.log('\n=== Query Result ===');
-            console.log(`Columns: ${result.columns.map(col => col.name).join(', ')}`);
+            console.log(`Columns: ${result.columns ? result.columns.map(col => col.name).join(', ') : 'N/A'}`);
             console.log(`Total Rows: ${result.rowCount}`);
-            console.log('\nFirst ${rowsToLog} rows:');
+            console.log(`\nFirst ${rowsToLog} rows:`);
             
             result.rows.slice(0, rowsToLog).forEach((row, index) => {
                 console.log(`Row ${index + 1}:`, row);
@@ -267,50 +277,52 @@ export class DatabaseGenericSteps extends CSBDDBaseStepDefinition {
 
     @CSBDDStepDef('user clears database cache')
     async clearDatabaseCache(): Promise<void> {
-        ActionLogger.logDatabaseAction('clear_cache');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearDatabaseCache', {});
 
-        const db = this.getCurrentDatabase();
-        await db.clearCache();
+        // Clear stored results in context
+        this.store('lastDatabaseResult', null);
+        this.store('databaseQueryLogging', null);
         
-        this.databaseContext.clearCache();
-        ActionLogger.logDatabaseAction('cache_cleared');
+        await actionLogger.logDatabase('cache_cleared', 'cache', 0, undefined, {});
     }
 
     @CSBDDStepDef('user enables database query logging')
     async enableQueryLogging(): Promise<void> {
-        ActionLogger.logDatabaseAction('enable_query_logging');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('enableQueryLogging', {});
 
-        const db = this.getCurrentDatabase();
-        await db.enableQueryLogging(true);
+        // Store logging preference
+        this.store('databaseQueryLogging', true);
         
-        this.databaseContext.setQueryLogging(true);
-        ActionLogger.logDatabaseAction('query_logging_enabled');
+        await actionLogger.logDatabase('query_logging_enabled', 'config', 0, undefined, {});
     }
 
     @CSBDDStepDef('user disables database query logging')
     async disableQueryLogging(): Promise<void> {
-        ActionLogger.logDatabaseAction('disable_query_logging');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('disableQueryLogging', {});
 
-        const db = this.getCurrentDatabase();
-        await db.enableQueryLogging(false);
+        // Store logging preference
+        this.store('databaseQueryLogging', false);
         
-        this.databaseContext.setQueryLogging(false);
-        ActionLogger.logDatabaseAction('query_logging_disabled');
+        await actionLogger.logDatabase('query_logging_disabled', 'config', 0, undefined, {});
     }
 
     @CSBDDStepDef('user validates database connection')
     @CSBDDStepDef('database connection should be active')
     async validateConnection(): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_connection');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateConnection', {});
 
         const db = this.getCurrentDatabase();
-        const isConnected = await db.isConnected();
+        const isConnected = db.isConnected();
         
         if (!isConnected) {
             throw new Error('Database connection is not active');
         }
 
-        ActionLogger.logDatabaseAction('connection_validated', { status: 'active' });
+        await actionLogger.logDatabase('connection_validated', 'validation', 0, undefined, { status: 'active' });
     }
 
     // Helper methods
@@ -357,15 +369,14 @@ export class DatabaseGenericSteps extends CSBDDBaseStepDefinition {
     }
 
     private getCurrentDatabase(): CSDatabase {
-        const db = this.databaseContext.getCurrentDatabase();
-        if (!db) {
+        if (!this.currentDatabase) {
             throw new Error('No database connection established. Use "Given user connects to ... database" first');
         }
-        return db;
+        return this.currentDatabase;
     }
 
     private getLastResult(): ResultSet {
-        const result = this.databaseContext.getLastResult();
+        const result = this.retrieve('lastDatabaseResult') as ResultSet;
         if (!result) {
             throw new Error('No query result available. Execute a query first');
         }
@@ -382,8 +393,8 @@ export class DatabaseGenericSteps extends CSBDDBaseStepDefinition {
     }
 
     private interpolateVariables(text: string): string {
-        return text.replace(/\{\{(\w+)\}\}/g, (match, variable) => {
-            const value = this.context.getVariable(variable);
+        return text.replace(/\{\{(\w+)\}\}/g, (_, variable) => {
+            const value = this.retrieve(variable);
             if (value === undefined) {
                 throw new Error(`Variable '${variable}' is not defined in context`);
             }

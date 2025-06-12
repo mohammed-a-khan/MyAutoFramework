@@ -3,58 +3,54 @@
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { DatabaseContext } from '../../database/context/DatabaseContext';
-import { CSDatabase } from '../../database/client/CSDatabase';
 import { ActionLogger } from '../../core/logging/ActionLogger';
-import { FileUtils } from '../../core/utils/FileUtils';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
-import { ResultSet, QueryOptions } from '../../database/types/database.types';
+import { QueryResult } from '../../database/types/database.types';
+import * as fs from 'fs';
 
 export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
-    private databaseContext: DatabaseContext;
+    private databaseContext: DatabaseContext = new DatabaseContext();
 
     constructor() {
         super();
-        this.databaseContext = this.context.getDatabaseContext();
     }
 
     @CSBDDStepDef('user executes query from file {string}')
     @CSBDDStepDef('user runs query from file {string}')
     async executeQueryFromFile(filePath: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_from_file', { filePath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_query_from_file', '', 0, undefined, { filePath });
 
         try {
             const resolvedPath = this.resolveFilePath(filePath);
-            const query = await FileUtils.readFile(resolvedPath);
+            const content = await fs.promises.readFile(resolvedPath, 'utf-8');
+            const query = content;
             const interpolatedQuery = this.interpolateVariables(query);
 
-            const db = this.getCurrentDatabase();
             const startTime = Date.now();
-            const result = await db.query(interpolatedQuery);
+            const result = await this.databaseContext.executeQuery(interpolatedQuery);
             const executionTime = Date.now() - startTime;
 
-            this.databaseContext.setLastResult(result);
-            this.databaseContext.addQueryExecution({
-                query: interpolatedQuery,
-                executionTime,
-                rowCount: result.rowCount,
-                timestamp: new Date()
-            });
+            this.databaseContext.storeResult('last', result);
+            this.store('lastQueryResult', result);
+            this.store('lastQueryExecutionTime', executionTime);
 
-            ActionLogger.logDatabaseAction('query_from_file_executed', {
+            await actionLogger.logDatabase('query_from_file_executed', interpolatedQuery, executionTime, result.rowCount, {
                 filePath,
                 rowCount: result.rowCount,
                 executionTime
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('query_file_execution_failed', error);
-            throw new Error(`Failed to execute query from file '${filePath}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { operation: 'query_file_execution_failed' });
+            throw new Error(`Failed to execute query from file '${filePath}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user executes parameterized query {string} with parameters:')
     async executeParameterizedQuery(query: string, dataTable: any): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_parameterized_query', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_parameterized_query', this.sanitizeQueryForLog(query), 0, undefined, { 
             query: this.sanitizeQueryForLog(query) 
         });
 
@@ -62,36 +58,32 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
             const parameters = this.parseParametersTable(dataTable);
             const interpolatedQuery = this.interpolateVariables(query);
 
-            const db = this.getCurrentDatabase();
             const startTime = Date.now();
-            const result = await db.queryWithParams(interpolatedQuery, parameters);
+            const result = await this.databaseContext.executeQuery(interpolatedQuery, Array.isArray(parameters) ? parameters : Object.values(parameters));
             const executionTime = Date.now() - startTime;
 
-            this.databaseContext.setLastResult(result);
-            this.databaseContext.addQueryExecution({
-                query: interpolatedQuery,
-                executionTime,
-                rowCount: result.rowCount,
-                timestamp: new Date(),
-                parameters
-            });
+            this.databaseContext.storeResult('last', result);
+            this.store('lastQueryResult', result);
+            this.store('lastQueryExecutionTime', executionTime);
 
-            ActionLogger.logDatabaseAction('parameterized_query_executed', {
+            await actionLogger.logDatabase('parameterized_query_executed', interpolatedQuery, executionTime, result.rowCount, {
                 rowCount: result.rowCount,
                 executionTime,
-                parameterCount: Object.keys(parameters).length
+                parameterCount: Array.isArray(parameters) ? parameters.length : Object.keys(parameters).length
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('parameterized_query_failed', error);
-            throw new Error(`Failed to execute parameterized query: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('parameterized_query_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to execute parameterized query: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user executes prepared statement {string}')
     @CSBDDStepDef('user executes predefined query {string}')
     async executePredefinedQuery(queryName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_predefined_query', { queryName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_predefined_query', '', 0, undefined, { queryName });
 
         try {
             // Load predefined query from configuration
@@ -101,59 +93,61 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
             }
 
             const interpolatedQuery = this.interpolateVariables(query);
-            const db = this.getCurrentDatabase();
             
             const startTime = Date.now();
-            const result = await db.query(interpolatedQuery);
+            const result = await this.databaseContext.executeQuery(interpolatedQuery);
             const executionTime = Date.now() - startTime;
 
-            this.databaseContext.setLastResult(result);
-            this.databaseContext.addQueryExecution({
-                query: interpolatedQuery,
-                executionTime,
-                rowCount: result.rowCount,
-                timestamp: new Date(),
-                queryName
-            });
+            this.databaseContext.storeResult('last', result);
+            this.store('lastQueryResult', result);
+            this.store('lastQueryExecutionTime', executionTime);
 
-            ActionLogger.logDatabaseAction('predefined_query_executed', {
+            await actionLogger.logDatabase('predefined_query_executed', interpolatedQuery, executionTime, result.rowCount, {
                 queryName,
                 rowCount: result.rowCount,
                 executionTime
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('predefined_query_failed', error);
-            throw new Error(`Failed to execute predefined query '${queryName}': ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('predefined_query_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to execute predefined query '${queryName}': ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user executes batch queries:')
     async executeBatchQueries(docString: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_batch_queries');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_batch_queries', '', 0);
 
         const queries = this.parseBatchQueries(docString);
-        const db = this.getCurrentDatabase();
-        const results: ResultSet[] = [];
+        const results: QueryResult[] = [];
         const errors: string[] = [];
 
         const startTime = Date.now();
 
         for (let i = 0; i < queries.length; i++) {
             try {
-                const interpolatedQuery = this.interpolateVariables(queries[i]);
-                const result = await db.query(interpolatedQuery);
+                const queryText = queries[i];
+                if (!queryText) continue;
+                
+                const interpolatedQuery = this.interpolateVariables(queryText);
+                const result = await this.databaseContext.executeQuery(interpolatedQuery);
                 results.push(result);
 
-                ActionLogger.logDatabaseAction('batch_query_executed', {
+                await actionLogger.logDatabase('batch_query_executed', interpolatedQuery, 0, result.rowCount, {
                     queryIndex: i + 1,
                     rowCount: result.rowCount
                 });
 
             } catch (error) {
-                const errorMsg = `Query ${i + 1} failed: ${error.message}`;
-                errors.push(errorMsg);
-                ActionLogger.logDatabaseError('batch_query_failed', { queryIndex: i + 1, error });
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                const errorText = `Query ${i + 1} failed: ${errorMsg}`;
+                errors.push(errorText);
+                await actionLogger.logDatabase('batch_query_failed', '', 0, undefined, { 
+                    queryIndex: i + 1, 
+                    error: errorMsg 
+                });
             }
         }
 
@@ -164,17 +158,20 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
         }
 
         // Store aggregated results
-        const aggregatedResult: ResultSet = {
+        const aggregatedResult: QueryResult = {
             rows: results.flatMap(r => r.rows),
+            fields: results[0]?.fields || [],
             rowCount: results.reduce((sum, r) => sum + r.rowCount, 0),
-            affectedRows: results.reduce((sum, r) => sum + (r.affectedRows || 0), 0),
-            columns: results[0]?.columns || []
+            command: 'BATCH',
+            duration: Date.now() - startTime,
+            affectedRows: results.reduce((sum, r) => sum + (r.affectedRows || 0), 0) || 0
         };
 
-        this.databaseContext.setLastResult(aggregatedResult);
-        this.databaseContext.setBatchResults(results);
+        this.databaseContext.storeResult('last', aggregatedResult);
+        this.databaseContext.storeResult('batch', aggregatedResult);
+        this.store('batchResults', results);
 
-        ActionLogger.logDatabaseAction('batch_queries_completed', {
+        await actionLogger.logDatabase('batch_queries_completed', '', totalExecutionTime, aggregatedResult.rowCount, {
             queryCount: queries.length,
             totalRows: aggregatedResult.rowCount,
             totalExecutionTime
@@ -183,174 +180,179 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
 
     @CSBDDStepDef('user executes query {string} with timeout {int} seconds')
     async executeQueryWithTimeout(query: string, timeout: number): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_with_timeout', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_query_with_timeout', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query),
             timeout
         });
 
         try {
             const interpolatedQuery = this.interpolateVariables(query);
-            const db = this.getCurrentDatabase();
-
-            const options: QueryOptions = {
-                timeout: timeout * 1000
-            };
 
             const startTime = Date.now();
-            const result = await db.queryWithOptions(interpolatedQuery, options);
+            // Set timeout on the context
+            const originalTimeout = this.databaseContext['queryTimeout'];
+            this.databaseContext['queryTimeout'] = timeout * 1000;
+            const result = await this.databaseContext.executeQuery(interpolatedQuery);
+            this.databaseContext['queryTimeout'] = originalTimeout;
             const executionTime = Date.now() - startTime;
 
-            this.databaseContext.setLastResult(result);
-            this.databaseContext.addQueryExecution({
-                query: interpolatedQuery,
-                executionTime,
-                rowCount: result.rowCount,
-                timestamp: new Date(),
-                timeout
-            });
+            this.databaseContext.storeResult('last', result);
+            this.store('lastQueryResult', result);
+            this.store('lastQueryExecutionTime', executionTime);
 
-            ActionLogger.logDatabaseAction('query_with_timeout_executed', {
+            await actionLogger.logDatabase('query_with_timeout_executed', interpolatedQuery, executionTime, result.rowCount, {
                 rowCount: result.rowCount,
                 executionTime,
                 timeout
             });
 
         } catch (error) {
-            if (error.message.includes('timeout')) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            if (errorMsg.includes('timeout')) {
                 throw new Error(`Query execution timed out after ${timeout} seconds`);
             }
-            ActionLogger.logDatabaseError('query_timeout_failed', error);
-            throw new Error(`Failed to execute query with timeout: ${error.message}`);
+            await actionLogger.logDatabase('query_timeout_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to execute query with timeout: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user executes query and expects error')
     @CSBDDStepDef('user executes invalid query {string}')
     async executeQueryExpectingError(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_expect_error', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_query_expect_error', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query)
         });
 
         const interpolatedQuery = this.interpolateVariables(query);
-        const db = this.getCurrentDatabase();
         let errorOccurred = false;
         let errorMessage = '';
 
         try {
-            await db.query(interpolatedQuery);
+            await this.databaseContext.executeQuery(interpolatedQuery);
         } catch (error) {
             errorOccurred = true;
-            errorMessage = error.message;
-            this.databaseContext.setLastError(error);
-            ActionLogger.logDatabaseAction('query_error_expected', { error: errorMessage });
+            errorMessage = error instanceof Error ? error.message : String(error);
+            this.store('lastError', error);
+            await actionLogger.logDatabase('query_error_expected', '', 0, undefined, { error: errorMessage });
         }
 
         if (!errorOccurred) {
             throw new Error('Expected query to fail, but it succeeded');
         }
 
-        ActionLogger.logDatabaseAction('query_error_validated', { errorMessage });
+        await actionLogger.logDatabase('query_error_validated', '', 0, undefined, { errorMessage });
     }
 
     @CSBDDStepDef('user executes scalar query {string}')
     @CSBDDStepDef('user gets single value from query {string}')
     async executeScalarQuery(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_scalar_query', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_scalar_query', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query)
         });
 
         try {
             const interpolatedQuery = this.interpolateVariables(query);
-            const db = this.getCurrentDatabase();
 
-            const result = await db.queryScalar(interpolatedQuery);
+            const result = await this.databaseContext.executeQuery(interpolatedQuery);
+            const scalarValue = result.rows[0] ? Object.values(result.rows[0])[0] : null;
 
             // Store scalar result
-            this.databaseContext.setLastScalarResult(result);
+            this.store('lastScalarResult', scalarValue);
 
-            ActionLogger.logDatabaseAction('scalar_query_executed', {
-                value: result,
-                type: typeof result
+            await actionLogger.logDatabase('scalar_query_executed', interpolatedQuery, 0, 1, {
+                value: scalarValue,
+                type: typeof scalarValue
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('scalar_query_failed', error);
-            throw new Error(`Failed to execute scalar query: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('scalar_query_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to execute scalar query: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user executes count query {string}')
     async executeCountQuery(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_count_query', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_count_query', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query)
         });
 
         try {
             const interpolatedQuery = this.interpolateVariables(query);
-            const db = this.getCurrentDatabase();
 
             // Ensure it's a count query
             if (!interpolatedQuery.toLowerCase().includes('count')) {
                 throw new Error('Query must contain COUNT function');
             }
 
-            const count = await db.queryScalar(interpolatedQuery);
+            const result = await this.databaseContext.executeQuery(interpolatedQuery);
+            const count = result.rows[0] ? Object.values(result.rows[0])[0] : 0;
             const countValue = Number(count);
 
             if (isNaN(countValue)) {
                 throw new Error(`Expected numeric count, got: ${count}`);
             }
 
-            this.databaseContext.setLastScalarResult(countValue);
+            this.store('lastScalarResult', countValue);
 
-            ActionLogger.logDatabaseAction('count_query_executed', { count: countValue });
+            await actionLogger.logDatabase('count_query_executed', interpolatedQuery, 0, 1, { count: countValue });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('count_query_failed', error);
-            throw new Error(`Failed to execute count query: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('count_query_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to execute count query: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user executes query {string} and fetches first row')
     async executeQueryFetchFirst(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_fetch_first', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_query_fetch_first', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query)
         });
 
         try {
             const interpolatedQuery = this.interpolateVariables(query);
-            const db = this.getCurrentDatabase();
 
-            const result = await db.query(interpolatedQuery);
+            const result = await this.databaseContext.executeQuery(interpolatedQuery);
 
             if (result.rowCount === 0) {
                 throw new Error('Query returned no rows');
             }
 
             // Store only first row
-            const firstRowResult: ResultSet = {
+            const firstRowResult: QueryResult = {
                 rows: [result.rows[0]],
+                fields: result.fields,
                 rowCount: 1,
-                columns: result.columns
+                command: result.command,
+                duration: result.duration,
+                affectedRows: result.affectedRows || 0
             };
 
-            this.databaseContext.setLastResult(firstRowResult);
-            this.databaseContext.setLastRow(result.rows[0]);
+            this.databaseContext.storeResult('last', firstRowResult);
+            this.store('lastRow', result.rows[0]);
 
-            ActionLogger.logDatabaseAction('first_row_fetched', {
+            await actionLogger.logDatabase('first_row_fetched', interpolatedQuery, 0, result.rowCount, {
                 totalRows: result.rowCount,
                 firstRow: result.rows[0]
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('fetch_first_failed', error);
-            throw new Error(`Failed to fetch first row: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('fetch_first_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to fetch first row: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user executes query {string} with limit {int}')
     async executeQueryWithLimit(query: string, limit: number): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_with_limit', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_query_with_limit', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query),
             limit
         });
@@ -361,75 +363,86 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
             // Add LIMIT clause if not present (database-specific)
             const limitedQuery = this.addLimitToQuery(interpolatedQuery, limit);
             
-            const db = this.getCurrentDatabase();
-            const result = await db.query(limitedQuery);
+            const result = await this.databaseContext.executeQuery(limitedQuery);
 
-            this.databaseContext.setLastResult(result);
+            this.databaseContext.storeResult('last', result);
 
-            ActionLogger.logDatabaseAction('query_with_limit_executed', {
+            await actionLogger.logDatabase('query_with_limit_executed', limitedQuery, 0, result.rowCount, {
                 requestedLimit: limit,
                 actualRows: result.rowCount
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('query_limit_failed', error);
-            throw new Error(`Failed to execute query with limit: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('query_limit_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to execute query with limit: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user profiles query {string}')
     @CSBDDStepDef('user explains query {string}')
     async profileQuery(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('profile_query', {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('profile_query', this.sanitizeQueryForLog(query), 0, undefined, {
             query: this.sanitizeQueryForLog(query)
         });
 
         try {
             const interpolatedQuery = this.interpolateVariables(query);
-            const db = this.getCurrentDatabase();
 
-            const executionPlan = await db.explainQuery(interpolatedQuery);
+            // Use executeWithPlan to get execution plan
+            const result = await this.databaseContext.executeWithPlan(interpolatedQuery);
+            const executionPlan = this.databaseContext.getLastExecutionPlan() || 'No execution plan available';
 
             console.log('\n=== Query Execution Plan ===');
             console.log(executionPlan);
             console.log('===========================\n');
 
-            this.databaseContext.setLastExecutionPlan(executionPlan);
+            this.store('lastExecutionPlan', executionPlan);
 
-            ActionLogger.logDatabaseAction('query_profiled', {
+            await actionLogger.logDatabase('query_profiled', interpolatedQuery, 0, result.rowCount, {
                 planLength: executionPlan.length
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('query_profile_failed', error);
-            throw new Error(`Failed to profile query: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            await actionLogger.logDatabase('query_profile_failed', '', 0, undefined, { error: errorMsg });
+            throw new Error(`Failed to profile query: ${errorMsg}`);
         }
     }
 
     @CSBDDStepDef('user cancels running query')
     async cancelRunningQuery(): Promise<void> {
-        ActionLogger.logDatabaseAction('cancel_query');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('cancel_query', '', 0, undefined, {});
 
         try {
-            const db = this.getCurrentDatabase();
-            await db.cancelCurrentQuery();
+            // Get the active adapter to cancel query
+            const adapter = this.databaseContext.getActiveAdapter();
+            
+            // Access the private activeConnection field
+            const connectionField = 'activeConnection';
+            const connection = (this.databaseContext as any)[connectionField];
+            
+            if (!connection) {
+                throw new Error('No active database connection');
+            }
+            
+            if (adapter.cancelQuery) {
+                await adapter.cancelQuery(connection);
+            } else {
+                throw new Error('Current database adapter does not support query cancellation');
+            }
 
-            ActionLogger.logDatabaseAction('query_cancelled');
+            await actionLogger.logDatabase('query_cancelled', '', 0, undefined, {});
 
         } catch (error) {
-            ActionLogger.logDatabaseError('query_cancel_failed', error);
-            throw new Error(`Failed to cancel query: ${error.message}`);
+            await actionLogger.logDatabase('query_cancel_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to cancel query: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     // Helper methods
-    private getCurrentDatabase(): CSDatabase {
-        const db = this.databaseContext.getCurrentDatabase();
-        if (!db) {
-            throw new Error('No database connection established. Use "Given user connects to ... database" first');
-        }
-        return db;
-    }
 
     private resolveFilePath(filePath: string): string {
         // Try multiple paths
@@ -441,7 +454,7 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
         ];
 
         for (const path of paths) {
-            if (FileUtils.exists(path)) {
+            if (fs.existsSync(path)) {
                 return path;
             }
         }
@@ -455,8 +468,8 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
         if (dataTable && dataTable.rawTable) {
             dataTable.rawTable.forEach((row: string[]) => {
                 if (row.length >= 2) {
-                    const paramName = row[0].trim();
-                    const paramValue = this.interpolateVariables(row[1].trim());
+                    const paramName = row[0]?.trim() || '';
+                    const paramValue = this.interpolateVariables(row[1]?.trim() || '');
                     
                     // Convert to appropriate type
                     parameters[paramName] = this.convertParameterValue(paramValue);
@@ -502,25 +515,8 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
             return query;
         }
 
-        // Add limit based on detected database type
-        const dbType = this.databaseContext.getCurrentDatabaseType();
-        
-        switch (dbType) {
-            case 'mysql':
-            case 'postgresql':
-                return `${query} LIMIT ${limit}`;
-            
-            case 'sqlserver':
-                // Add TOP after SELECT
-                return query.replace(/select/i, `SELECT TOP ${limit}`);
-            
-            case 'oracle':
-                // Use ROWNUM
-                return `SELECT * FROM (${query}) WHERE ROWNUM <= ${limit}`;
-            
-            default:
-                return `${query} LIMIT ${limit}`;
-        }
+        // Default to MySQL syntax - would need to check adapter type for specific syntax
+        return `${query} LIMIT ${limit}`;
     }
 
     private sanitizeQueryForLog(query: string): string {
@@ -532,12 +528,13 @@ export class QueryExecutionSteps extends CSBDDBaseStepDefinition {
     }
 
     private interpolateVariables(text: string): string {
-        return text.replace(/\{\{(\w+)\}\}/g, (match, variable) => {
-            const value = this.context.getVariable(variable);
+        return text.replace(/\{\{(\w+)\}\}/g, (_match, variable) => {
+            const value = this.context.retrieve(variable);
             if (value === undefined) {
                 throw new Error(`Variable '${variable}' is not defined in context`);
             }
             return String(value);
         });
     }
+
 }

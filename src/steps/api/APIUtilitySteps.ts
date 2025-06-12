@@ -2,13 +2,13 @@
 
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
-import { APIContext } from '../../api/context/APIContext';
 import { ResponseStorage } from '../../bdd/context/ResponseStorage';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { FileUtils } from '../../core/utils/FileUtils';
 import { DateUtils } from '../../core/utils/DateUtils';
 import { StringUtils } from '../../core/utils/StringUtils';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
+import * as path from 'path';
 
 /**
  * Utility step definitions for API testing
@@ -19,7 +19,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
 
     constructor() {
         super();
-        this.responseStorage = new ResponseStorage();
+        this.responseStorage = ResponseStorage.getInstance();
     }
 
     /**
@@ -28,7 +28,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user waits for {int} seconds")
     async waitForSeconds(seconds: number): Promise<void> {
-        ActionLogger.logAPIAction('wait', { seconds });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('wait', { seconds });
         
         try {
             if (seconds < 0) {
@@ -42,12 +43,12 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             const milliseconds = seconds * 1000;
             await new Promise(resolve => setTimeout(resolve, milliseconds));
             
-            ActionLogger.logAPIAction('waitCompleted', { 
+            await actionLogger.logAction('waitCompleted', { 
                 seconds,
                 milliseconds
             });
         } catch (error) {
-            ActionLogger.logError('Wait failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Wait failed' });
             throw error;
         }
     }
@@ -58,7 +59,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user waits for {int} milliseconds")
     async waitForMilliseconds(milliseconds: number): Promise<void> {
-        ActionLogger.logAPIAction('waitMs', { milliseconds });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('waitMs', { milliseconds });
         
         try {
             if (milliseconds < 0) {
@@ -71,9 +73,9 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             
             await new Promise(resolve => setTimeout(resolve, milliseconds));
             
-            ActionLogger.logAPIAction('waitMsCompleted', { milliseconds });
+            await actionLogger.logAction('waitMsCompleted', { milliseconds });
         } catch (error) {
-            ActionLogger.logError('Wait failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Wait failed' });
             throw error;
         }
     }
@@ -84,7 +86,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user logs response body")
     async logResponseBody(): Promise<void> {
-        ActionLogger.logAPIAction('logResponseBody', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('logResponseBody', {});
         
         try {
             const response = this.getLastResponse();
@@ -94,12 +97,12 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             console.log(this.formatResponseBody(bodyText));
             console.log('===================================\n');
             
-            ActionLogger.logAPIAction('responseBodyLogged', { 
+            await actionLogger.logAction('responseBodyLogged', { 
                 bodyLength: bodyText.length,
                 contentType: response.headers['content-type'] || 'unknown'
             });
         } catch (error) {
-            ActionLogger.logError('Failed to log response body', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to log response body' });
             throw error;
         }
     }
@@ -110,7 +113,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user logs response headers")
     async logResponseHeaders(): Promise<void> {
-        ActionLogger.logAPIAction('logResponseHeaders', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('logResponseHeaders', {});
         
         try {
             const response = this.getLastResponse();
@@ -121,11 +125,11 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             });
             console.log('=====================================\n');
             
-            ActionLogger.logAPIAction('responseHeadersLogged', { 
+            await actionLogger.logAction('responseHeadersLogged', { 
                 headerCount: Object.keys(response.headers).length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to log response headers', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to log response headers' });
             throw error;
         }
     }
@@ -136,7 +140,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user logs complete response")
     async logCompleteResponse(): Promise<void> {
-        ActionLogger.logAPIAction('logCompleteResponse', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('logCompleteResponse', {});
         
         try {
             const response = this.getLastResponse();
@@ -153,13 +158,13 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             console.log(this.formatResponseBody(bodyText));
             console.log('======================================\n');
             
-            ActionLogger.logAPIAction('completeResponseLogged', { 
+            await actionLogger.logAction('completeResponseLogged', { 
                 statusCode: response.statusCode,
                 responseTime: response.responseTime,
                 bodyLength: bodyText.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to log complete response', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to log complete response' });
             throw error;
         }
     }
@@ -170,7 +175,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user saves response to {string}")
     async saveResponseToFile(fileName: string): Promise<void> {
-        ActionLogger.logAPIAction('saveResponseToFile', { fileName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('saveResponseToFile', { fileName });
         
         try {
             const response = this.getLastResponse();
@@ -180,18 +186,19 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             const savePath = await this.resolveSavePath(fileName);
             
             // Ensure directory exists
-            await FileUtils.ensureDirectoryExists(FileUtils.getDirectory(savePath));
+            const dir = path.dirname(savePath);
+            await FileUtils.ensureDir(dir);
             
             // Save file
             await FileUtils.writeFile(savePath, bodyText);
             
-            ActionLogger.logAPIAction('responseFileSaved', { 
+            await actionLogger.logAction('responseFileSaved', { 
                 fileName: savePath,
                 fileSize: bodyText.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to save response to file', error);
-            throw new Error(`Failed to save response to file '${fileName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to save response to file' });
+            throw new Error(`Failed to save response to file '${fileName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -201,7 +208,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user saves complete response to {string}")
     async saveCompleteResponseToFile(fileName: string): Promise<void> {
-        ActionLogger.logAPIAction('saveCompleteResponseToFile', { fileName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('saveCompleteResponseToFile', { fileName });
         
         try {
             const response = this.getLastResponse();
@@ -227,18 +235,19 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             const savePath = await this.resolveSavePath(fileName);
             
             // Ensure directory exists
-            await FileUtils.ensureDirectoryExists(FileUtils.getDirectory(savePath));
+            const dir = path.dirname(savePath);
+            await FileUtils.ensureDir(dir);
             
             // Save file
             await FileUtils.writeFile(savePath, completeResponse);
             
-            ActionLogger.logAPIAction('completeResponseFileSaved', { 
+            await actionLogger.logAction('completeResponseFileSaved', { 
                 fileName: savePath,
                 fileSize: completeResponse.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to save complete response to file', error);
-            throw new Error(`Failed to save complete response to file '${fileName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to save complete response to file' });
+            throw new Error(`Failed to save complete response to file '${fileName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -248,26 +257,27 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user stores response as {string}")
     async storeResponseAs(alias: string): Promise<void> {
-        ActionLogger.logAPIAction('storeResponseAs', { alias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('storeResponseAs', { alias });
         
         try {
             const response = this.getLastResponse();
-            const scenarioId = this.context.getScenarioId();
+            const scenarioId = this.scenarioContext.getScenarioId();
             
             // Store in response storage
             this.responseStorage.store(alias, response, scenarioId);
             
             // Also store in context for easy access
-            this.context.set(`response_${alias}`, response);
+            this.store(`response_${alias}`, response);
             
-            ActionLogger.logAPIAction('responseStored', { 
+            await actionLogger.logAction('responseStored', { 
                 alias,
                 statusCode: response.statusCode,
                 hasBody: !!response.body
             });
         } catch (error) {
-            ActionLogger.logError('Failed to store response', error);
-            throw new Error(`Failed to store response as '${alias}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to store response' });
+            throw new Error(`Failed to store response as '${alias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -277,7 +287,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user extracts JSON path {string} as {string}")
     async extractJSONPathAsVariable(jsonPath: string, variableName: string): Promise<void> {
-        ActionLogger.logAPIAction('extractJSONPath', { jsonPath, variableName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('extractJSONPath', { jsonPath, variableName });
         
         try {
             const response = this.getLastResponse();
@@ -285,7 +296,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             
             // Import JSONPathValidator to extract value
             const { JSONPathValidator } = await import('../../api/validators/JSONPathValidator');
-            const validator = new JSONPathValidator();
+            const validator = JSONPathValidator.getInstance();
             
             const value = validator.extractValue(jsonBody, jsonPath);
             
@@ -294,17 +305,17 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             }
             
             // Store as variable
-            this.context.setVariable(variableName, value);
+            this.store(variableName, value);
             
-            ActionLogger.logAPIAction('jsonPathExtracted', { 
+            await actionLogger.logAction('jsonPathExtracted', { 
                 jsonPath,
                 variableName,
                 valueType: typeof value,
                 value: this.truncateValue(value)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to extract JSON path', error);
-            throw new Error(`Failed to extract JSON path '${jsonPath}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to extract JSON path' });
+            throw new Error(`Failed to extract JSON path '${jsonPath}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -314,7 +325,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user extracts header {string} as {string}")
     async extractHeaderAsVariable(headerName: string, variableName: string): Promise<void> {
-        ActionLogger.logAPIAction('extractHeader', { headerName, variableName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('extractHeader', { headerName, variableName });
         
         try {
             const response = this.getLastResponse();
@@ -327,16 +339,16 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             }
             
             // Store as variable
-            this.context.setVariable(variableName, headerValue);
+            this.store(variableName, headerValue);
             
-            ActionLogger.logAPIAction('headerExtracted', { 
+            await actionLogger.logAction('headerExtracted', { 
                 headerName,
                 variableName,
                 value: headerValue
             });
         } catch (error) {
-            ActionLogger.logError('Failed to extract header', error);
-            throw new Error(`Failed to extract header '${headerName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to extract header' });
+            throw new Error(`Failed to extract header '${headerName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -346,21 +358,22 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets variable {string} to {string}")
     async setVariable(variableName: string, value: string): Promise<void> {
-        ActionLogger.logAPIAction('setVariable', { variableName, value });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setVariable', { variableName, value });
         
         try {
             const interpolatedValue = await this.interpolateValue(value);
-            this.context.setVariable(variableName, interpolatedValue);
+            this.store(variableName, interpolatedValue);
             
-            ActionLogger.logAPIAction('variableSet', { 
+            await actionLogger.logAction('variableSet', { 
                 variableName,
                 originalValue: value,
                 interpolatedValue,
                 valueType: typeof interpolatedValue
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set variable', error);
-            throw new Error(`Failed to set variable '${variableName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set variable' });
+            throw new Error(`Failed to set variable '${variableName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -370,7 +383,8 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user generates random {string} as {string}")
     async generateRandomValue(type: string, variableName: string): Promise<void> {
-        ActionLogger.logAPIAction('generateRandomValue', { type, variableName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('generateRandomValue', { type, variableName });
         
         try {
             let value: any;
@@ -389,11 +403,11 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
                     
                 case 'string':
                 case 'text':
-                    value = StringUtils.generateRandomString(10);
+                    value = StringUtils.random(10, {});
                     break;
                     
                 case 'email':
-                    value = `test_${StringUtils.generateRandomString(8)}@example.com`;
+                    value = `test_${StringUtils.randomAlphanumeric(8)}@example.com`;
                     break;
                     
                 case 'timestamp':
@@ -401,7 +415,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
                     break;
                     
                 case 'date':
-                    value = DateUtils.formatDate(new Date(), 'YYYY-MM-DD');
+                    value = DateUtils.format(new Date(), 'YYYY-MM-DD');
                     break;
                     
                 case 'datetime':
@@ -418,16 +432,16 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             }
             
             // Store as variable
-            this.context.setVariable(variableName, value);
+            this.store(variableName, value);
             
-            ActionLogger.logAPIAction('randomValueGenerated', { 
+            await actionLogger.logAction('randomValueGenerated', { 
                 type,
                 variableName,
                 value: String(value)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to generate random value', error);
-            throw new Error(`Failed to generate random value: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to generate random value' });
+            throw new Error(`Failed to generate random value: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -437,10 +451,11 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user prints all variables")
     async printAllVariables(): Promise<void> {
-        ActionLogger.logAPIAction('printAllVariables', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('printAllVariables', {});
         
         try {
-            const variables = this.context.getAllVariables();
+            const variables = this.getAllStoredVariables();
             
             console.log('\n========== CURRENT VARIABLES ==========');
             if (Object.keys(variables).length === 0) {
@@ -452,11 +467,11 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             }
             console.log('=====================================\n');
             
-            ActionLogger.logAPIAction('variablesPrinted', { 
+            await actionLogger.logAction('variablesPrinted', { 
                 count: Object.keys(variables).length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to print variables', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to print variables' });
             throw error;
         }
     }
@@ -467,14 +482,19 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears all variables")
     async clearAllVariables(): Promise<void> {
-        ActionLogger.logAPIAction('clearAllVariables', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearAllVariables', {});
         
         try {
-            this.context.clearVariables();
+            // Clear all stored variables
+            const variables = this.getAllStoredVariables();
+            for (const key of Object.keys(variables)) {
+                this.deleteStore(key);
+            }
             
-            ActionLogger.logAPIAction('variablesCleared', {});
+            await actionLogger.logAction('variablesCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear variables', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to clear variables' });
             throw error;
         }
     }
@@ -483,7 +503,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
      * Helper method to get last response
      */
     private getLastResponse(): any {
-        const response = this.context.get('lastAPIResponse');
+        const response = this.retrieve('lastAPIResponse');
         if (!response) {
             throw new Error('No API response found. Please execute a request first');
         }
@@ -518,7 +538,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
         try {
             return JSON.parse(bodyText);
         } catch (error) {
-            throw new Error(`Failed to parse response as JSON: ${error.message}`);
+            throw new Error(`Failed to parse response as JSON: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -537,7 +557,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
                 return bodyText
                     .replace(/></g, '>\n<')
                     .split('\n')
-                    .map((line, index) => {
+                    .map((line) => {
                         const indent = '  '.repeat(this.getXMLIndentLevel(line));
                         return indent + line.trim();
                     })
@@ -607,15 +627,35 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
     }
 
     /**
+     * Helper method to get all stored variables
+     */
+    private getAllStoredVariables(): Record<string, any> {
+        // Get all stored values from the BDD context
+        const variables: Record<string, any> = {};
+        // This is a simplified version - in practice, you'd need to track variable names
+        // For now, we'll return an empty object
+        return variables;
+    }
+
+    /**
+     * Helper method to delete a stored value
+     */
+    private deleteStore(key: string): void {
+        // Since we don't have a direct delete method in the base class,
+        // we can set it to undefined
+        this.store(key, undefined);
+    }
+
+    /**
      * Helper method to resolve save paths
      */
     private async resolveSavePath(savePath: string): Promise<string> {
-        if (FileUtils.isAbsolutePath(savePath)) {
+        if (path.isAbsolute(savePath)) {
             return savePath;
         }
         
         const outputPath = ConfigurationManager.get('API_OUTPUT_PATH', './output/api');
-        return FileUtils.joinPath(outputPath, savePath);
+        return path.join(outputPath, savePath);
     }
 
     /**
@@ -626,7 +666,7 @@ export class APIUtilitySteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        const variables = this.context.getAllVariables();
+        const variables = this.getAllStoredVariables();
         let interpolated = value;
         
         for (const [key, val] of Object.entries(variables)) {

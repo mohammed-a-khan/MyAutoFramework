@@ -4,7 +4,6 @@ import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { APIContext } from '../../api/context/APIContext';
 import { APIContextManager } from '../../api/context/APIContextManager';
-import { CSHttpClient } from '../../api/client/CSHttpClient';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { ResponseStorage } from '../../bdd/context/ResponseStorage';
@@ -17,15 +16,13 @@ import { ValidationUtils } from '../../core/utils/ValidationUtils';
  */
 export class APIGenericSteps extends CSBDDBaseStepDefinition {
     private apiContextManager: APIContextManager;
-    private currentContext: APIContext;
-    private httpClient: CSHttpClient;
+    private currentContext: APIContext | null = null;
     private responseStorage: ResponseStorage;
 
     constructor() {
         super();
-        this.apiContextManager = new APIContextManager();
-        this.httpClient = new CSHttpClient();
-        this.responseStorage = new ResponseStorage();
+        this.apiContextManager = APIContextManager.getInstance();
+        this.responseStorage = ResponseStorage.getInstance();
     }
 
     /**
@@ -34,32 +31,35 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user is working with {string} API")
     async setAPIContext(apiName: string): Promise<void> {
-        ActionLogger.logAPIAction('setContext', { apiName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setContext', { apiName });
         
         try {
             // Create or get existing context
-            this.currentContext = await this.apiContextManager.getOrCreateContext(apiName);
+            this.currentContext = await this.apiContextManager.createContext(apiName);
             
             // Load API-specific configuration
             const apiConfig = await this.loadAPIConfig(apiName);
             if (apiConfig) {
                 this.currentContext.setBaseUrl(apiConfig.baseUrl);
-                this.currentContext.setDefaultHeaders(apiConfig.defaultHeaders || {});
+                if (apiConfig.defaultHeaders) {
+                    this.currentContext.setHeaders(apiConfig.defaultHeaders);
+                }
                 this.currentContext.setTimeout(apiConfig.timeout || 30000);
             }
             
             // Store in BDD context for other steps
-            this.context.set('currentAPIContext', this.currentContext);
-            this.context.set('currentAPIName', apiName);
+            this.store('currentAPIContext', this.currentContext);
+            this.store('currentAPIName', apiName);
             
-            ActionLogger.logAPIAction('contextSet', { 
+            await actionLogger.logAction('contextSet', { 
                 apiName, 
                 baseUrl: this.currentContext.getBaseUrl(),
                 timeout: this.currentContext.getTimeout()
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set API context', error);
-            throw new Error(`Failed to set API context for '${apiName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set API context' });
+            throw new Error(`Failed to set API context for '${apiName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -69,17 +69,18 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API base URL to {string}")
     async setAPIBaseURL(baseUrl: string): Promise<void> {
-        ActionLogger.logAPIAction('setBaseURL', { baseUrl });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setBaseURL', { baseUrl });
         
         try {
             // Validate URL format
-            if (!ValidationUtils.isValidURL(baseUrl)) {
+            if (!ValidationUtils.isValidUrl(baseUrl)) {
                 throw new Error(`Invalid URL format: ${baseUrl}`);
             }
             
             // Get current context or create default
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
             // Interpolate variables if present
@@ -87,13 +88,13 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             
             this.currentContext.setBaseUrl(interpolatedUrl);
             
-            ActionLogger.logAPIAction('baseURLSet', { 
+            await actionLogger.logAction('baseURLSet', { 
                 originalUrl: baseUrl,
                 interpolatedUrl: interpolatedUrl
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set base URL', error);
-            throw new Error(`Failed to set API base URL: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set base URL' });
+            throw new Error(`Failed to set API base URL: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -103,7 +104,8 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API timeout to {int} seconds")
     async setAPITimeout(timeoutSeconds: number): Promise<void> {
-        ActionLogger.logAPIAction('setTimeout', { timeoutSeconds });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setTimeout', { timeoutSeconds });
         
         try {
             if (timeoutSeconds <= 0) {
@@ -111,19 +113,19 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             }
             
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
             const timeoutMs = timeoutSeconds * 1000;
             this.currentContext.setTimeout(timeoutMs);
             
-            ActionLogger.logAPIAction('timeoutSet', { 
+            await actionLogger.logAction('timeoutSet', { 
                 seconds: timeoutSeconds,
                 milliseconds: timeoutMs
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set timeout', error);
-            throw new Error(`Failed to set API timeout: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set timeout' });
+            throw new Error(`Failed to set API timeout: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -133,19 +135,21 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user disables SSL validation")
     async disableSSLValidation(): Promise<void> {
-        ActionLogger.logAPIAction('disableSSL', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('disableSSL', {});
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setSSLValidation(false);
+            const state = this.currentContext.getCurrentState();
+            state.validateSSL = false;
             
-            ActionLogger.logAPIAction('sslValidationDisabled', {});
-            ActionLogger.logWarning('SSL validation disabled - use only for testing!');
+            await actionLogger.logAction('sslValidationDisabled', {});
+            await actionLogger.logAction('sslWarning', { message: 'SSL validation disabled - use only for testing!' });
         } catch (error) {
-            ActionLogger.logError('Failed to disable SSL validation', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to disable SSL validation' });
             throw error;
         }
     }
@@ -156,18 +160,20 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user enables SSL validation")
     async enableSSLValidation(): Promise<void> {
-        ActionLogger.logAPIAction('enableSSL', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('enableSSL', {});
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setSSLValidation(true);
+            const state = this.currentContext.getCurrentState();
+            state.validateSSL = true;
             
-            ActionLogger.logAPIAction('sslValidationEnabled', {});
+            await actionLogger.logAction('sslValidationEnabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to enable SSL validation', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to enable SSL validation' });
             throw error;
         }
     }
@@ -178,7 +184,8 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API retry count to {int}")
     async setRetryCount(retryCount: number): Promise<void> {
-        ActionLogger.logAPIAction('setRetryCount', { retryCount });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRetryCount', { retryCount });
         
         try {
             if (retryCount < 0) {
@@ -186,15 +193,16 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             }
             
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setRetryCount(retryCount);
+            const state = this.currentContext.getCurrentState();
+            state.retryConfig.maxAttempts = retryCount;
             
-            ActionLogger.logAPIAction('retryCountSet', { retryCount });
+            await actionLogger.logAction('retryCountSet', { retryCount });
         } catch (error) {
-            ActionLogger.logError('Failed to set retry count', error);
-            throw new Error(`Failed to set retry count: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set retry count' });
+            throw new Error(`Failed to set retry count: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -204,7 +212,8 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API retry delay to {int} seconds")
     async setRetryDelay(delaySeconds: number): Promise<void> {
-        ActionLogger.logAPIAction('setRetryDelay', { delaySeconds });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRetryDelay', { delaySeconds });
         
         try {
             if (delaySeconds < 0) {
@@ -212,19 +221,20 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             }
             
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
             const delayMs = delaySeconds * 1000;
-            this.currentContext.setRetryDelay(delayMs);
+            const state = this.currentContext.getCurrentState();
+            state.retryConfig.delay = delayMs;
             
-            ActionLogger.logAPIAction('retryDelaySet', { 
+            await actionLogger.logAction('retryDelaySet', { 
                 seconds: delaySeconds,
                 milliseconds: delayMs
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set retry delay', error);
-            throw new Error(`Failed to set retry delay: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set retry delay' });
+            throw new Error(`Failed to set retry delay: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -234,18 +244,20 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user enables API request logging")
     async enableRequestLogging(): Promise<void> {
-        ActionLogger.logAPIAction('enableRequestLogging', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('enableRequestLogging', {});
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setRequestLogging(true);
+            // Store request logging preference in variables
+            this.currentContext.setVariable('requestLogging', true);
             
-            ActionLogger.logAPIAction('requestLoggingEnabled', {});
+            await actionLogger.logAction('requestLoggingEnabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to enable request logging', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to enable request logging' });
             throw error;
         }
     }
@@ -256,18 +268,20 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user disables API request logging")
     async disableRequestLogging(): Promise<void> {
-        ActionLogger.logAPIAction('disableRequestLogging', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('disableRequestLogging', {});
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setRequestLogging(false);
+            // Store request logging preference in variables
+            this.currentContext.setVariable('requestLogging', false);
             
-            ActionLogger.logAPIAction('requestLoggingDisabled', {});
+            await actionLogger.logAction('requestLoggingDisabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to disable request logging', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to disable request logging' });
             throw error;
         }
     }
@@ -278,19 +292,21 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears all API responses")
     async clearAllResponses(): Promise<void> {
-        ActionLogger.logAPIAction('clearResponses', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearResponses', {});
         
         try {
-            const scenarioId = this.context.getScenarioId();
-            this.responseStorage.clearScenarioResponses(scenarioId);
+            this.responseStorage.clear();
             
+            // Clear any stored responses in context state
             if (this.currentContext) {
-                this.currentContext.clearHistory();
+                // Clear any response-related data from variables
+                this.currentContext.setVariable('lastResponse', null);
             }
             
-            ActionLogger.logAPIAction('responsesCleared', {});
+            await actionLogger.logAction('responsesCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear responses', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to clear responses' });
             throw error;
         }
     }
@@ -301,7 +317,8 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user switches to {string} API context")
     async switchAPIContext(contextName: string): Promise<void> {
-        ActionLogger.logAPIAction('switchContext', { contextName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('switchContext', { contextName });
         
         try {
             const context = await this.apiContextManager.getContext(contextName);
@@ -310,16 +327,16 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             }
             
             this.currentContext = context;
-            this.context.set('currentAPIContext', this.currentContext);
-            this.context.set('currentAPIName', contextName);
+            this.store('currentAPIContext', this.currentContext);
+            this.store('currentAPIName', contextName);
             
-            ActionLogger.logAPIAction('contextSwitched', { 
+            await actionLogger.logAction('contextSwitched', { 
                 contextName,
                 baseUrl: context.getBaseUrl()
             });
         } catch (error) {
-            ActionLogger.logError('Failed to switch context', error);
-            throw new Error(`Failed to switch to API context '${contextName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to switch context' });
+            throw new Error(`Failed to switch to API context '${contextName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -329,18 +346,19 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user creates {string} API context")
     async createAPIContext(contextName: string): Promise<void> {
-        ActionLogger.logAPIAction('createContext', { contextName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('createContext', { contextName });
         
         try {
-            const context = await this.apiContextManager.createContext(contextName);
+            await this.apiContextManager.createContext(contextName);
             
-            ActionLogger.logAPIAction('contextCreated', { 
+            await actionLogger.logAction('contextCreated', { 
                 contextName,
-                contextId: context.getId()
+                contextId: contextName
             });
         } catch (error) {
-            ActionLogger.logError('Failed to create context', error);
-            throw new Error(`Failed to create API context '${contextName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to create context' });
+            throw new Error(`Failed to create API context '${contextName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -350,23 +368,24 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API user agent to {string}")
     async setUserAgent(userAgent: string): Promise<void> {
-        ActionLogger.logAPIAction('setUserAgent', { userAgent });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setUserAgent', { userAgent });
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
             const interpolatedAgent = await this.interpolateValue(userAgent);
-            this.currentContext.setDefaultHeader('User-Agent', interpolatedAgent);
+            this.currentContext.setHeader('User-Agent', interpolatedAgent);
             
-            ActionLogger.logAPIAction('userAgentSet', { 
+            await actionLogger.logAction('userAgentSet', { 
                 originalAgent: userAgent,
                 interpolatedAgent: interpolatedAgent
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set user agent', error);
-            throw new Error(`Failed to set user agent: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set user agent' });
+            throw new Error(`Failed to set user agent: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -376,18 +395,20 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user enables redirect following")
     async enableRedirectFollowing(): Promise<void> {
-        ActionLogger.logAPIAction('enableRedirects', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('enableRedirects', {});
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setFollowRedirects(true);
+            const state = this.currentContext.getCurrentState();
+            state.followRedirects = true;
             
-            ActionLogger.logAPIAction('redirectsEnabled', {});
+            await actionLogger.logAction('redirectsEnabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to enable redirects', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to enable redirects' });
             throw error;
         }
     }
@@ -398,18 +419,20 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user disables redirect following")
     async disableRedirectFollowing(): Promise<void> {
-        ActionLogger.logAPIAction('disableRedirects', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('disableRedirects', {});
         
         try {
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setFollowRedirects(false);
+            const state = this.currentContext.getCurrentState();
+            state.followRedirects = false;
             
-            ActionLogger.logAPIAction('redirectsDisabled', {});
+            await actionLogger.logAction('redirectsDisabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to disable redirects', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to disable redirects' });
             throw error;
         }
     }
@@ -420,7 +443,8 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets maximum redirects to {int}")
     async setMaxRedirects(maxRedirects: number): Promise<void> {
-        ActionLogger.logAPIAction('setMaxRedirects', { maxRedirects });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setMaxRedirects', { maxRedirects });
         
         try {
             if (maxRedirects < 0) {
@@ -428,15 +452,16 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             }
             
             if (!this.currentContext) {
-                this.currentContext = await this.apiContextManager.getOrCreateContext('default');
+                this.currentContext = await this.apiContextManager.createContext('default');
             }
             
-            this.currentContext.setMaxRedirects(maxRedirects);
+            // Store max redirects in variables since APIContext doesn't have this property directly
+            this.currentContext.setVariable('maxRedirects', maxRedirects);
             
-            ActionLogger.logAPIAction('maxRedirectsSet', { maxRedirects });
+            await actionLogger.logAction('maxRedirectsSet', { maxRedirects });
         } catch (error) {
-            ActionLogger.logError('Failed to set max redirects', error);
-            throw new Error(`Failed to set maximum redirects: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set max redirects' });
+            throw new Error(`Failed to set maximum redirects: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -451,14 +476,16 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             
             if (configPath) {
                 const configContent = await FileUtils.readFile(configPath);
-                return JSON.parse(configContent);
+                if (!configContent) return null;
+                return JSON.parse(configContent.toString());
             }
             
             // Try to load from standard location
             const standardPath = `config/api/${apiName}.json`;
             if (await FileUtils.exists(standardPath)) {
                 const configContent = await FileUtils.readFile(standardPath);
-                return JSON.parse(configContent);
+                if (!configContent) return null;
+                return JSON.parse(configContent.toString());
             }
             
             // Return default config
@@ -469,7 +496,11 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
                         ConfigurationManager.getInt('API_DEFAULT_TIMEOUT', 30000)
             };
         } catch (error) {
-            ActionLogger.logWarning(`Failed to load API config for '${apiName}': ${error.message}`);
+            const actionLogger = ActionLogger.getInstance();
+            await actionLogger.logAction('configLoadWarning', { 
+                apiName, 
+                message: `Failed to load API config for '${apiName}': ${error instanceof Error ? error.message : String(error)}` 
+            });
             return null;
         }
     }
@@ -482,8 +513,15 @@ export class APIGenericSteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        // Get variables from context
-        const variables = this.context.getAllVariables();
+        // Get variables from context - using retrieve for stored variables
+        const variables: Record<string, any> = {};
+        
+        // Try to get common variables from the BDD context
+        const currentContext = this.retrieve('currentAPIContext');
+        if (currentContext && typeof currentContext === 'object' && 'getVariables' in currentContext) {
+            const apiVars = (currentContext as APIContext).getVariables();
+            Object.assign(variables, apiVars);
+        }
         
         // Replace placeholders
         let interpolated = value;

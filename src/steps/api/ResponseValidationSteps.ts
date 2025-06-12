@@ -2,7 +2,6 @@
 
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
-import { ResponseValidator } from '../../api/validators/ResponseValidator';
 import { StatusCodeValidator } from '../../api/validators/StatusCodeValidator';
 import { HeaderValidator } from '../../api/validators/HeaderValidator';
 import { BodyValidator } from '../../api/validators/BodyValidator';
@@ -12,14 +11,12 @@ import { XMLValidator } from '../../api/validators/XMLValidator';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { FileUtils } from '../../core/utils/FileUtils';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
-import { StringUtils } from '../../core/utils/StringUtils';
 
 /**
  * Step definitions for validating API responses
  * Provides comprehensive validation capabilities for all response aspects
  */
 export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
-    private responseValidator: ResponseValidator;
     private statusCodeValidator: StatusCodeValidator;
     private headerValidator: HeaderValidator;
     private bodyValidator: BodyValidator;
@@ -29,13 +26,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
 
     constructor() {
         super();
-        this.responseValidator = new ResponseValidator();
         this.statusCodeValidator = new StatusCodeValidator();
         this.headerValidator = new HeaderValidator();
         this.bodyValidator = new BodyValidator();
-        this.schemaValidator = new SchemaValidator();
-        this.jsonPathValidator = new JSONPathValidator();
-        this.xmlValidator = new XMLValidator();
+        this.schemaValidator = SchemaValidator.getInstance();
+        this.jsonPathValidator = JSONPathValidator.getInstance();
+        this.xmlValidator = XMLValidator.getInstance();
     }
 
     /**
@@ -44,7 +40,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response status code should be {int}")
     async validateStatusCode(expectedCode: number): Promise<void> {
-        ActionLogger.logAPIAction('validateStatusCode', { expectedCode });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateStatusCode', { expectedCode });
         
         try {
             const response = this.getLastResponse();
@@ -54,12 +51,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Status code validation failed: Expected ${expectedCode} but got ${response.statusCode}. ${result.message || ''}`);
             }
             
-            ActionLogger.logAPIAction('statusCodeValidated', { 
+            await actionLogger.logAction('statusCodeValidated', { 
                 expected: expectedCode,
                 actual: response.statusCode
             });
         } catch (error) {
-            ActionLogger.logError('Status code validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Status code validation failed' });
             throw error;
         }
     }
@@ -70,7 +67,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response status code should be between {int} and {int}")
     async validateStatusCodeRange(minCode: number, maxCode: number): Promise<void> {
-        ActionLogger.logAPIAction('validateStatusCodeRange', { minCode, maxCode });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateStatusCodeRange', { minCode, maxCode });
         
         try {
             const response = this.getLastResponse();
@@ -80,12 +78,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Status code validation failed: Expected code between ${minCode} and ${maxCode} but got ${response.statusCode}`);
             }
             
-            ActionLogger.logAPIAction('statusCodeRangeValidated', { 
+            await actionLogger.logAction('statusCodeRangeValidated', { 
                 range: `${minCode}-${maxCode}`,
                 actual: response.statusCode
             });
         } catch (error) {
-            ActionLogger.logError('Status code range validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Status code range validation failed' });
             throw error;
         }
     }
@@ -96,7 +94,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response body should contain {string}")
     async validateBodyContains(expectedText: string): Promise<void> {
-        ActionLogger.logAPIAction('validateBodyContains', { expectedText });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateBodyContains', { expectedText });
         
         try {
             const response = this.getLastResponse();
@@ -109,12 +108,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Response body validation failed: Expected to contain '${interpolatedText}' but it was not found. Body preview: ${bodyText.substring(0, 200)}...`);
             }
             
-            ActionLogger.logAPIAction('bodyContainsValidated', { 
+            await actionLogger.logAction('bodyContainsValidated', { 
                 searchText: interpolatedText,
                 found: true
             });
         } catch (error) {
-            ActionLogger.logError('Body contains validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Body contains validation failed' });
             throw error;
         }
     }
@@ -125,7 +124,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response body should not contain {string}")
     async validateBodyNotContains(text: string): Promise<void> {
-        ActionLogger.logAPIAction('validateBodyNotContains', { text });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateBodyNotContains', { text });
         
         try {
             const response = this.getLastResponse();
@@ -137,12 +137,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Response body validation failed: Expected NOT to contain '${interpolatedText}' but it was found`);
             }
             
-            ActionLogger.logAPIAction('bodyNotContainsValidated', { 
+            await actionLogger.logAction('bodyNotContainsValidated', { 
                 searchText: interpolatedText,
                 notFound: true
             });
         } catch (error) {
-            ActionLogger.logError('Body not contains validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Body not contains validation failed' });
             throw error;
         }
     }
@@ -153,7 +153,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response body should equal {string}")
     async validateBodyEquals(expectedBody: string): Promise<void> {
-        ActionLogger.logAPIAction('validateBodyEquals', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateBodyEquals', { 
             expectedLength: expectedBody.length 
         });
         
@@ -167,11 +168,11 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Response body validation failed: Expected body to equal '${interpolatedBody}' but got '${bodyText}'`);
             }
             
-            ActionLogger.logAPIAction('bodyEqualsValidated', { 
+            await actionLogger.logAction('bodyEqualsValidated', { 
                 bodyLength: bodyText.length
             });
         } catch (error) {
-            ActionLogger.logError('Body equals validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Body equals validation failed' });
             throw error;
         }
     }
@@ -182,7 +183,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response JSON path {string} should exist")
     async validateJSONPathExists(jsonPath: string): Promise<void> {
-        ActionLogger.logAPIAction('validateJSONPathExists', { jsonPath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateJSONPathExists', { jsonPath });
         
         try {
             const response = this.getLastResponse();
@@ -194,12 +196,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`JSON path validation failed: Path '${jsonPath}' does not exist in response`);
             }
             
-            ActionLogger.logAPIAction('jsonPathExistsValidated', { 
+            await actionLogger.logAction('jsonPathExistsValidated', { 
                 jsonPath,
                 valueType: typeof value
             });
         } catch (error) {
-            ActionLogger.logError('JSON path exists validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'JSON path exists validation failed' });
             throw error;
         }
     }
@@ -210,7 +212,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response JSON path {string} should equal {string}")
     async validateJSONPathEquals(jsonPath: string, expectedValue: string): Promise<void> {
-        ActionLogger.logAPIAction('validateJSONPathEquals', { jsonPath, expectedValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateJSONPathEquals', { jsonPath, expectedValue });
         
         try {
             const response = this.getLastResponse();
@@ -220,19 +223,18 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
             // Parse expected value
             const parsedExpected = this.parseExpectedValue(interpolatedValue);
             
-            const result = this.jsonPathValidator.validatePath(jsonBody, jsonPath, parsedExpected);
+            const result = await this.jsonPathValidator.validatePath(jsonBody, jsonPath, parsedExpected);
             
             if (!result.valid) {
                 throw new Error(`JSON path validation failed: ${result.message}`);
             }
             
-            ActionLogger.logAPIAction('jsonPathEqualsValidated', { 
+            await actionLogger.logAction('jsonPathEqualsValidated', { 
                 jsonPath,
-                expectedValue: parsedExpected,
-                actualValue: result.actualValue
+                expectedValue: parsedExpected
             });
         } catch (error) {
-            ActionLogger.logError('JSON path equals validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'JSON path equals validation failed' });
             throw error;
         }
     }
@@ -243,7 +245,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response JSON path {string} should contain {string}")
     async validateJSONPathContains(jsonPath: string, expectedText: string): Promise<void> {
-        ActionLogger.logAPIAction('validateJSONPathContains', { jsonPath, expectedText });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateJSONPathContains', { jsonPath, expectedText });
         
         try {
             const response = this.getLastResponse();
@@ -261,12 +264,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`JSON path validation failed: Expected '${jsonPath}' to contain '${interpolatedText}' but got '${stringValue}'`);
             }
             
-            ActionLogger.logAPIAction('jsonPathContainsValidated', { 
+            await actionLogger.logAction('jsonPathContainsValidated', { 
                 jsonPath,
                 containsText: interpolatedText
             });
         } catch (error) {
-            ActionLogger.logError('JSON path contains validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'JSON path contains validation failed' });
             throw error;
         }
     }
@@ -277,7 +280,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response JSON path {string} should have {int} elements")
     async validateJSONPathArrayLength(jsonPath: string, expectedLength: number): Promise<void> {
-        ActionLogger.logAPIAction('validateJSONPathArrayLength', { jsonPath, expectedLength });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateJSONPathArrayLength', { jsonPath, expectedLength });
         
         try {
             const response = this.getLastResponse();
@@ -293,13 +297,13 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`JSON path validation failed: Expected array at '${jsonPath}' to have ${expectedLength} elements but has ${value.length}`);
             }
             
-            ActionLogger.logAPIAction('jsonPathArrayLengthValidated', { 
+            await actionLogger.logAction('jsonPathArrayLengthValidated', { 
                 jsonPath,
                 expectedLength,
                 actualLength: value.length
             });
         } catch (error) {
-            ActionLogger.logError('JSON path array length validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'JSON path array length validation failed' });
             throw error;
         }
     }
@@ -310,7 +314,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response should match schema {string}")
     async validateJSONSchema(schemaFile: string): Promise<void> {
-        ActionLogger.logAPIAction('validateJSONSchema', { schemaFile });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateJSONSchema', { schemaFile });
         
         try {
             const response = this.getLastResponse();
@@ -319,22 +324,22 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
             // Load schema
             const schemaPath = await this.resolveSchemaPath(schemaFile);
             const schemaContent = await FileUtils.readFile(schemaPath);
-            const schema = JSON.parse(schemaContent);
+            const schema = JSON.parse(schemaContent.toString());
             
             // Validate
-            const result = this.schemaValidator.validateSchema(jsonBody, schema);
+            const result = await this.schemaValidator.validateSchema(jsonBody, schema);
             
             if (!result.valid) {
-                const errors = result.errors.map(e => `  - ${e.path}: ${e.message}`).join('\n');
+                const errors = result.errors ? result.errors.map(e => `  - ${e.path}: ${e.message}`).join('\n') : 'Validation failed';
                 throw new Error(`Schema validation failed:\n${errors}`);
             }
             
-            ActionLogger.logAPIAction('schemaValidated', { 
+            await actionLogger.logAction('schemaValidated', { 
                 schemaFile: schemaPath,
                 valid: true
             });
         } catch (error) {
-            ActionLogger.logError('Schema validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Schema validation failed' });
             throw error;
         }
     }
@@ -345,7 +350,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response should have header {string}")
     async validateHeaderExists(headerName: string): Promise<void> {
-        ActionLogger.logAPIAction('validateHeaderExists', { headerName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateHeaderExists', { headerName });
         
         try {
             const response = this.getLastResponse();
@@ -355,12 +361,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Header validation failed: Expected header '${headerName}' not found`);
             }
             
-            ActionLogger.logAPIAction('headerExistsValidated', { 
+            await actionLogger.logAction('headerExistsValidated', { 
                 headerName,
                 value: response.headers[headerName]
             });
         } catch (error) {
-            ActionLogger.logError('Header exists validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Header exists validation failed' });
             throw error;
         }
     }
@@ -371,7 +377,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response header {string} should equal {string}")
     async validateHeaderEquals(headerName: string, expectedValue: string): Promise<void> {
-        ActionLogger.logAPIAction('validateHeaderEquals', { headerName, expectedValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateHeaderEquals', { headerName, expectedValue });
         
         try {
             const response = this.getLastResponse();
@@ -384,13 +391,13 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Header validation failed: Expected header '${headerName}' to equal '${interpolatedValue}' but got '${actualValue}'`);
             }
             
-            ActionLogger.logAPIAction('headerEqualsValidated', { 
+            await actionLogger.logAction('headerEqualsValidated', { 
                 headerName,
                 expectedValue: interpolatedValue,
                 actualValue: response.headers[headerName]
             });
         } catch (error) {
-            ActionLogger.logError('Header equals validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Header equals validation failed' });
             throw error;
         }
     }
@@ -401,7 +408,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response header {string} should contain {string}")
     async validateHeaderContains(headerName: string, expectedText: string): Promise<void> {
-        ActionLogger.logAPIAction('validateHeaderContains', { headerName, expectedText });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateHeaderContains', { headerName, expectedText });
         
         try {
             const response = this.getLastResponse();
@@ -416,13 +424,13 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Header validation failed: Expected header '${headerName}' to contain '${interpolatedText}' but got '${headerValue}'`);
             }
             
-            ActionLogger.logAPIAction('headerContainsValidated', { 
+            await actionLogger.logAction('headerContainsValidated', { 
                 headerName,
                 containsText: interpolatedText,
                 headerValue
             });
         } catch (error) {
-            ActionLogger.logError('Header contains validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Header contains validation failed' });
             throw error;
         }
     }
@@ -433,7 +441,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response time should be less than {int} ms")
     async validateResponseTime(maxTimeMs: number): Promise<void> {
-        ActionLogger.logAPIAction('validateResponseTime', { maxTimeMs });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateResponseTime', { maxTimeMs });
         
         try {
             const response = this.getLastResponse();
@@ -443,12 +452,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Response time validation failed: Expected response time less than ${maxTimeMs}ms but was ${responseTime}ms`);
             }
             
-            ActionLogger.logAPIAction('responseTimeValidated', { 
+            await actionLogger.logAction('responseTimeValidated', { 
                 maxTime: maxTimeMs,
                 actualTime: responseTime
             });
         } catch (error) {
-            ActionLogger.logError('Response time validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Response time validation failed' });
             throw error;
         }
     }
@@ -459,25 +468,26 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the XML response path {string} should equal {string}")
     async validateXPathEquals(xpath: string, expectedValue: string): Promise<void> {
-        ActionLogger.logAPIAction('validateXPathEquals', { xpath, expectedValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateXPathEquals', { xpath, expectedValue });
         
         try {
             const response = this.getLastResponse();
             const xmlBody = this.getResponseBodyAsString(response);
             const interpolatedValue = await this.interpolateValue(expectedValue);
             
-            const result = this.xmlValidator.validateXPath(xmlBody, xpath, interpolatedValue);
+            const result = await this.xmlValidator.validateXPath(xmlBody, xpath, interpolatedValue);
             
             if (!result.valid) {
                 throw new Error(`XPath validation failed: ${result.message}`);
             }
             
-            ActionLogger.logAPIAction('xpathEqualsValidated', { 
+            await actionLogger.logAction('xpathEqualsValidated', { 
                 xpath,
                 expectedValue: interpolatedValue
             });
         } catch (error) {
-            ActionLogger.logError('XPath equals validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'XPath equals validation failed' });
             throw error;
         }
     }
@@ -488,7 +498,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response body should be empty")
     async validateBodyEmpty(): Promise<void> {
-        ActionLogger.logAPIAction('validateBodyEmpty', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateBodyEmpty', {});
         
         try {
             const response = this.getLastResponse();
@@ -498,9 +509,9 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Response body validation failed: Expected empty body but got '${bodyText.substring(0, 100)}...'`);
             }
             
-            ActionLogger.logAPIAction('bodyEmptyValidated', {});
+            await actionLogger.logAction('bodyEmptyValidated', {});
         } catch (error) {
-            ActionLogger.logError('Body empty validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Body empty validation failed' });
             throw error;
         }
     }
@@ -511,7 +522,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response body should match pattern {string}")
     async validateBodyPattern(pattern: string): Promise<void> {
-        ActionLogger.logAPIAction('validateBodyPattern', { pattern });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateBodyPattern', { pattern });
         
         try {
             const response = this.getLastResponse();
@@ -522,9 +534,9 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Response body validation failed: Body does not match pattern '${pattern}'`);
             }
             
-            ActionLogger.logAPIAction('bodyPatternValidated', { pattern });
+            await actionLogger.logAction('bodyPatternValidated', { pattern });
         } catch (error) {
-            ActionLogger.logError('Body pattern validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Body pattern validation failed' });
             throw error;
         }
     }
@@ -541,7 +553,8 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("the response should match JSON schema:")
     async validateInlineJSONSchema(schemaJson: string): Promise<void> {
-        ActionLogger.logAPIAction('validateInlineJSONSchema', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('validateInlineJSONSchema', {});
         
         try {
             const response = this.getLastResponse();
@@ -552,20 +565,20 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
             try {
                 schema = JSON.parse(schemaJson);
             } catch (error) {
-                throw new Error(`Invalid JSON schema: ${error.message}`);
+                throw new Error(`Invalid JSON schema: ${error instanceof Error ? error.message : String(error)}`);
             }
             
             // Validate
-            const result = this.schemaValidator.validateSchema(jsonBody, schema);
+            const result = await this.schemaValidator.validateSchema(jsonBody, schema);
             
             if (!result.valid) {
-                const errors = result.errors.map(e => `  - ${e.path}: ${e.message}`).join('\n');
+                const errors = result.errors ? result.errors.map(e => `  - ${e.path}: ${e.message}`).join('\n') : 'Validation failed';
                 throw new Error(`Schema validation failed:\n${errors}`);
             }
             
-            ActionLogger.logAPIAction('inlineSchemaValidated', { valid: true });
+            await actionLogger.logAction('inlineSchemaValidated', { valid: true });
         } catch (error) {
-            ActionLogger.logError('Inline schema validation failed', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Inline schema validation failed' });
             throw error;
         }
     }
@@ -574,7 +587,7 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      * Helper method to get last response
      */
     private getLastResponse(): any {
-        const response = this.context.get('lastAPIResponse');
+        const response = this.retrieve('lastAPIResponse');
         if (!response) {
             throw new Error('No API response found. Please execute a request first');
         }
@@ -609,7 +622,7 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
         try {
             return JSON.parse(bodyText);
         } catch (error) {
-            throw new Error(`Failed to parse response as JSON: ${error.message}. Body: ${bodyText.substring(0, 200)}...`);
+            throw new Error(`Failed to parse response as JSON: ${error instanceof Error ? error.message : String(error)}. Body: ${bodyText.substring(0, 200)}...`);
         }
     }
 
@@ -642,13 +655,14 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
      * Helper method to resolve schema paths
      */
     private async resolveSchemaPath(schemaFile: string): Promise<string> {
-        if (FileUtils.isAbsolutePath(schemaFile)) {
+        const path = await import('path');
+        if (path.isAbsolute(schemaFile)) {
             return schemaFile;
         }
         
         // Try schema directory
         const schemaPath = ConfigurationManager.get('SCHEMA_PATH', './test-data/schemas');
-        const resolvedPath = FileUtils.joinPath(schemaPath, schemaFile);
+        const resolvedPath = path.join(schemaPath, schemaFile);
         
         if (await FileUtils.exists(resolvedPath)) {
             return resolvedPath;
@@ -656,7 +670,7 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
         
         // Try test data directory
         const testDataPath = ConfigurationManager.get('TEST_DATA_PATH', './test-data');
-        const testDataResolvedPath = FileUtils.joinPath(testDataPath, 'schemas', schemaFile);
+        const testDataResolvedPath = path.join(testDataPath, 'schemas', schemaFile);
         
         if (await FileUtils.exists(testDataResolvedPath)) {
             return testDataResolvedPath;
@@ -678,12 +692,12 @@ export class ResponseValidationSteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        const variables = this.context.getAllVariables();
+        // Simple placeholder replacement for common variables
         let interpolated = value;
-        
-        for (const [key, val] of Object.entries(variables)) {
-            interpolated = interpolated.replace(new RegExp(`{{${key}}}`, 'g'), String(val));
-        }
+        interpolated = interpolated.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+            const varValue = this.retrieve(varName);
+            return varValue !== undefined ? String(varValue) : match;
+        });
         
         return interpolated;
     }

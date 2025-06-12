@@ -5,13 +5,14 @@ import {
   SummaryStats, 
   HighlightItem,
   RecommendationItem,
-  ReportTheme 
+  ReportTheme,
+  ScenarioSummary
 } from '../types/reporting.types';
 import { Logger } from '../../core/utils/Logger';
 import { DateUtils } from '../../core/utils/DateUtils';
 
 export class SummaryGenerator {
-  private static readonly logger = new Logger(SummaryGenerator.name);
+  private static readonly logger = Logger.getInstance(SummaryGenerator.name);
   private theme: ReportTheme;
 
   constructor(theme: ReportTheme) {
@@ -47,20 +48,20 @@ export class SummaryGenerator {
    */
   private calculateSummaryStats(data: ExecutionSummary): SummaryStats {
     const totalScenarios = data.scenarios.length;
-    const passedScenarios = data.scenarios.filter(s => s.status === 'passed').length;
-    const failedScenarios = data.scenarios.filter(s => s.status === 'failed').length;
-    const skippedScenarios = data.scenarios.filter(s => s.status === 'skipped').length;
+    const passedScenarios = data.scenarios.filter((s: ScenarioSummary) => s.status === 'passed').length;
+    const failedScenarios = data.scenarios.filter((s: ScenarioSummary) => s.status === 'failed').length;
+    const skippedScenarios = data.scenarios.filter((s: ScenarioSummary) => s.status === 'skipped').length;
 
-    const totalSteps = data.scenarios.reduce((sum, s) => sum + s.steps.length, 0);
-    const passedSteps = data.scenarios.reduce((sum, s) => 
-      sum + s.steps.filter(step => step.status === 'passed').length, 0
+    const totalSteps = data.scenarios.reduce((sum: number, s: ScenarioSummary) => sum + (s.steps?.length || 0), 0);
+    const passedSteps = data.scenarios.reduce((sum: number, s: ScenarioSummary) => 
+      sum + (s.steps?.filter(step => step.status === 'passed').length || 0), 0
     );
-    const failedSteps = data.scenarios.reduce((sum, s) => 
-      sum + s.steps.filter(step => step.status === 'failed').length, 0
+    const failedSteps = data.scenarios.reduce((sum: number, s: ScenarioSummary) => 
+      sum + (s.steps?.filter(step => step.status === 'failed').length || 0), 0
     );
 
     const passRate = (passedScenarios / totalScenarios) * 100;
-    const avgDuration = data.scenarios.reduce((sum, s) => sum + s.duration, 0) / totalScenarios;
+    const avgDuration = data.scenarios.reduce((sum: number, s: ScenarioSummary) => sum + s.duration, 0) / totalScenarios;
 
     // Calculate improvement metrics
     const previousPassRate = data.previousRun?.passRate || passRate - 5;
@@ -69,7 +70,7 @@ export class SummaryGenerator {
     const durationImprovement = ((previousAvgDuration - avgDuration) / previousAvgDuration) * 100;
 
     // Risk assessment
-    const criticalFailures = data.scenarios.filter(s => 
+    const criticalFailures = data.scenarios.filter((s: ScenarioSummary) => 
       s.status === 'failed' && s.tags?.includes('@critical')
     ).length;
     const riskLevel = this.calculateRiskLevel(failedScenarios, criticalFailures, totalScenarios);
@@ -85,17 +86,17 @@ export class SummaryGenerator {
       failedSteps,
       passRate,
       avgDuration,
-      totalDuration: data.endTime - data.startTime,
+      totalDuration: (data.endTime ? new Date(data.endTime).getTime() : Date.now()) - (data.startTime ? new Date(data.startTime).getTime() : Date.now()),
       passRateImprovement,
       durationImprovement,
       criticalFailures,
       riskLevel,
-      executionEnvironment: data.environment,
-      parallelExecution: data.parallelWorkers > 1,
-      parallelWorkers: data.parallelWorkers,
+      executionEnvironment: data.environment || 'unknown',
+      parallelExecution: (data.parallelWorkers || 1) > 1,
+      parallelWorkers: data.parallelWorkers || 1,
       retryStats: {
-        totalRetries: data.scenarios.reduce((sum, s) => sum + (s.retryCount || 0), 0),
-        scenariosWithRetries: data.scenarios.filter(s => (s.retryCount || 0) > 0).length
+        totalRetries: data.scenarios.reduce((sum: number, s: ScenarioSummary) => sum + (s.retryCount || 0), 0),
+        scenariosWithRetries: data.scenarios.filter((s: ScenarioSummary) => (s.retryCount || 0) > 0).length
       }
     };
   }
@@ -107,7 +108,7 @@ export class SummaryGenerator {
     const highlights: HighlightItem[] = [];
 
     // Pass rate achievement
-    const passRate = (data.scenarios.filter(s => s.status === 'passed').length / data.scenarios.length) * 100;
+    const passRate = (data.scenarios.filter((s: ScenarioSummary) => s.status === 'passed').length / data.scenarios.length) * 100;
     if (passRate >= 95) {
       highlights.push({
         type: 'success',
@@ -119,7 +120,7 @@ export class SummaryGenerator {
 
     // Performance improvement
     if (data.previousRun) {
-      const currentAvg = data.scenarios.reduce((sum, s) => sum + s.duration, 0) / data.scenarios.length;
+      const currentAvg = data.scenarios.reduce((sum: number, s: ScenarioSummary) => sum + s.duration, 0) / data.scenarios.length;
       const previousAvg = data.previousRun.avgDuration;
       const improvement = ((previousAvg - currentAvg) / previousAvg) * 100;
       
@@ -134,7 +135,7 @@ export class SummaryGenerator {
     }
 
     // Critical failures
-    const criticalFailures = data.scenarios.filter(s => 
+    const criticalFailures = data.scenarios.filter((s: ScenarioSummary) => 
       s.status === 'failed' && s.tags?.includes('@critical')
     );
     if (criticalFailures.length > 0) {
@@ -191,28 +192,28 @@ export class SummaryGenerator {
     const recommendations: RecommendationItem[] = [];
 
     // Failed test recommendations
-    const failedScenarios = data.scenarios.filter(s => s.status === 'failed');
+    const failedScenarios = data.scenarios.filter((s: ScenarioSummary) => s.status === 'failed');
     if (failedScenarios.length > 0) {
       const errorTypes = this.analyzeErrorTypes(failedScenarios);
       
-      if (errorTypes.elementNotFound > 5) {
+      if ((errorTypes['elementNotFound'] || 0) > 5) {
         recommendations.push({
           priority: 'high',
           category: 'stability',
           title: 'Review Element Locators',
-          description: `${errorTypes.elementNotFound} failures due to element not found. Consider enabling AI self-healing or updating locators.`,
+          description: `${errorTypes['elementNotFound']} failures due to element not found. Consider enabling AI self-healing or updating locators.`,
           action: 'Review and update element locators for failed tests',
           impact: 'Reduce test failures by up to 30%',
           effort: 'medium'
         });
       }
 
-      if (errorTypes.timeout > 3) {
+      if ((errorTypes['timeout'] || 0) > 3) {
         recommendations.push({
           priority: 'medium',
           category: 'performance',
           title: 'Optimize Wait Strategies',
-          description: `${errorTypes.timeout} timeout failures detected. Review wait conditions and timeout values.`,
+          description: `${errorTypes['timeout']} timeout failures detected. Review wait conditions and timeout values.`,
           action: 'Increase timeouts or optimize application performance',
           impact: 'Improve test reliability',
           effort: 'low'
@@ -221,7 +222,7 @@ export class SummaryGenerator {
     }
 
     // Performance recommendations
-    const slowScenarios = data.scenarios.filter(s => s.duration > 30000); // > 30 seconds
+    const slowScenarios = data.scenarios.filter((s: ScenarioSummary) => s.duration > 30000); // > 30 seconds
     if (slowScenarios.length > 10) {
       recommendations.push({
         priority: 'medium',
@@ -235,7 +236,7 @@ export class SummaryGenerator {
     }
 
     // Retry recommendations
-    const retriedScenarios = data.scenarios.filter(s => (s.retryCount || 0) > 0);
+    const retriedScenarios = data.scenarios.filter((s: ScenarioSummary) => (s.retryCount || 0) > 0);
     if (retriedScenarios.length > data.scenarios.length * 0.1) {
       recommendations.push({
         priority: 'high',
@@ -263,12 +264,12 @@ export class SummaryGenerator {
 
     // Coverage recommendations
     const tagCoverage = this.analyzeTagCoverage(data);
-    if (tagCoverage.smoke < 10) {
+    if ((tagCoverage['smoke'] || 0) < 10) {
       recommendations.push({
         priority: 'medium',
         category: 'coverage',
         title: 'Increase Smoke Test Coverage',
-        description: 'Only ' + tagCoverage.smoke + ' smoke tests identified. Consider marking more critical tests as smoke tests.',
+        description: 'Only ' + tagCoverage['smoke'] + ' smoke tests identified. Consider marking more critical tests as smoke tests.',
         action: 'Review and tag critical user journeys as @smoke tests',
         impact: 'Faster feedback on critical functionality',
         effort: 'low'
@@ -290,8 +291,8 @@ export class SummaryGenerator {
     }
 
     return recommendations.sort((a, b) => {
-      const priorityOrder = { high: 0, medium: 1, low: 2 };
-      return priorityOrder[a.priority] - priorityOrder[b.priority];
+      const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      return (priorityOrder[a.priority as string] || 0) - (priorityOrder[b.priority as string] || 0);
     });
   }
 
@@ -544,6 +545,16 @@ export class SummaryGenerator {
    * Generate summary CSS
    */
   private generateSummaryCSS(): string {
+    const colors = this.theme.colors || {} as any;
+    const primary = colors.primary || '#93186C';
+    const success = colors.success || '#28A745';
+    const error = colors.error || '#DC3545';
+    const warning = colors.warning || '#FFC107';
+    const info = colors.info || '#17A2B8';
+    const background = colors.background || { primary: '#FFFFFF', secondary: '#F8F9FA' };
+    const text = colors.text || { primary: '#212529', secondary: '#6C757D', tertiary: '#ADB5BD' };
+    const border = colors.border || '#DEE2E6';
+    
     return `
       .cs-executive-summary {
         background: white;
@@ -556,7 +567,7 @@ export class SummaryGenerator {
 
       /* Header */
       .summary-header {
-        background: linear-gradient(135deg, ${this.theme.colors.primary} 0%, ${this.theme.colors.primary}DD 100%);
+        background: linear-gradient(135deg, ${primary} 0%, ${primary}DD 100%);
         color: white;
         padding: 32px;
         display: flex;
@@ -610,28 +621,28 @@ export class SummaryGenerator {
       }
 
       .risk-indicator.low {
-        background: ${this.theme.colors.success}40;
+        background: ${success}40;
       }
 
       .risk-indicator.medium {
-        background: ${this.theme.colors.warning}40;
+        background: ${warning}40;
       }
 
       .risk-indicator.high {
-        background: ${this.theme.colors.error}40;
+        background: ${error}40;
       }
 
       /* Executive Summary */
       .executive-summary {
         padding: 24px 32px;
-        background: ${this.theme.colors.background.secondary};
-        border-bottom: 1px solid ${this.theme.colors.border};
+        background: ${background.secondary};
+        border-bottom: 1px solid ${border};
       }
 
       .executive-summary p {
         font-size: 15px;
         line-height: 1.6;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin: 0;
       }
 
@@ -644,7 +655,7 @@ export class SummaryGenerator {
       }
 
       .metric-card {
-        background: ${this.theme.colors.background.secondary};
+        background: ${background.secondary};
         border-radius: 8px;
         padding: 20px;
         text-align: center;
@@ -657,21 +668,21 @@ export class SummaryGenerator {
       }
 
       .metric-card.primary {
-        background: ${this.theme.colors.primary}10;
-        border: 2px solid ${this.theme.colors.primary}20;
+        background: ${primary}10;
+        border: 2px solid ${primary}20;
       }
 
       .metric-value {
         font-size: 32px;
         font-weight: 700;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         line-height: 1;
         margin-bottom: 8px;
       }
 
       .metric-label {
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
         margin-bottom: 8px;
       }
 
@@ -685,11 +696,11 @@ export class SummaryGenerator {
       }
 
       .metric-change.positive {
-        color: ${this.theme.colors.success};
+        color: ${success};
       }
 
       .metric-change.negative {
-        color: ${this.theme.colors.error};
+        color: ${error};
       }
 
       .metric-breakdown {
@@ -707,23 +718,23 @@ export class SummaryGenerator {
       }
 
       .metric-breakdown .passed {
-        background: ${this.theme.colors.success}20;
-        color: ${this.theme.colors.success};
+        background: ${success}20;
+        color: ${success};
       }
 
       .metric-breakdown .failed {
-        background: ${this.theme.colors.error}20;
-        color: ${this.theme.colors.error};
+        background: ${error}20;
+        color: ${error};
       }
 
       .metric-breakdown .skipped {
-        background: ${this.theme.colors.warning}20;
-        color: ${this.theme.colors.warning};
+        background: ${warning}20;
+        color: ${warning};
       }
 
       .metric-subtext {
         font-size: 12px;
-        color: ${this.theme.colors.text.tertiary};
+        color: ${text.tertiary};
         margin-top: 4px;
       }
 
@@ -735,7 +746,7 @@ export class SummaryGenerator {
       .distribution-section h3 {
         font-size: 18px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin-bottom: 20px;
       }
 
@@ -743,7 +754,7 @@ export class SummaryGenerator {
         display: flex;
         align-items: center;
         gap: 40px;
-        background: ${this.theme.colors.background.secondary};
+        background: ${background.secondary};
         border-radius: 8px;
         padding: 24px;
       }
@@ -771,12 +782,12 @@ export class SummaryGenerator {
       .center-value {
         font-size: 32px;
         font-weight: 700;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
       }
 
       .center-label {
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
       }
 
       .chart-legend {
@@ -791,7 +802,7 @@ export class SummaryGenerator {
         align-items: center;
         gap: 12px;
         padding: 12px;
-        background: ${this.theme.colors.background.primary};
+        background: ${background.primary};
         border-radius: 6px;
       }
 
@@ -803,32 +814,32 @@ export class SummaryGenerator {
       }
 
       .legend-item.passed .legend-color {
-        background: ${this.theme.colors.success};
+        background: ${success};
       }
 
       .legend-item.failed .legend-color {
-        background: ${this.theme.colors.error};
+        background: ${error};
       }
 
       .legend-item.skipped .legend-color {
-        background: ${this.theme.colors.warning};
+        background: ${warning};
       }
 
       .legend-label {
         flex: 1;
         font-size: 14px;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
       }
 
       .legend-value {
         font-size: 16px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
       }
 
       .legend-percent {
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
         margin-left: 8px;
       }
 
@@ -840,7 +851,7 @@ export class SummaryGenerator {
       .highlights-section h3 {
         font-size: 18px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin-bottom: 20px;
       }
 
@@ -854,7 +865,7 @@ export class SummaryGenerator {
         display: flex;
         gap: 16px;
         padding: 20px;
-        background: ${this.theme.colors.background.secondary};
+        background: ${background.secondary};
         border-radius: 8px;
         border-left: 4px solid;
         transition: all 0.2s;
@@ -865,28 +876,28 @@ export class SummaryGenerator {
       }
 
       .highlight-card.success {
-        border-left-color: ${this.theme.colors.success};
-        background: ${this.theme.colors.success}05;
+        border-left-color: ${success};
+        background: ${success}05;
       }
 
       .highlight-card.improvement {
-        border-left-color: ${this.theme.colors.info};
-        background: ${this.theme.colors.info}05;
+        border-left-color: ${info};
+        background: ${info}05;
       }
 
       .highlight-card.warning {
-        border-left-color: ${this.theme.colors.warning};
-        background: ${this.theme.colors.warning}05;
+        border-left-color: ${warning};
+        background: ${warning}05;
       }
 
       .highlight-card.alert {
-        border-left-color: ${this.theme.colors.error};
-        background: ${this.theme.colors.error}05;
+        border-left-color: ${error};
+        background: ${error}05;
       }
 
       .highlight-card.info {
-        border-left-color: ${this.theme.colors.primary};
-        background: ${this.theme.colors.primary}05;
+        border-left-color: ${primary};
+        background: ${primary}05;
       }
 
       .highlight-icon {
@@ -900,54 +911,54 @@ export class SummaryGenerator {
       }
 
       .highlight-card.success .highlight-icon {
-        background: ${this.theme.colors.success}20;
-        color: ${this.theme.colors.success};
+        background: ${success}20;
+        color: ${success};
       }
 
       .highlight-card.improvement .highlight-icon {
-        background: ${this.theme.colors.info}20;
-        color: ${this.theme.colors.info};
+        background: ${info}20;
+        color: ${info};
       }
 
       .highlight-card.warning .highlight-icon {
-        background: ${this.theme.colors.warning}20;
-        color: ${this.theme.colors.warning};
+        background: ${warning}20;
+        color: ${warning};
       }
 
       .highlight-card.alert .highlight-icon {
-        background: ${this.theme.colors.error}20;
-        color: ${this.theme.colors.error};
+        background: ${error}20;
+        color: ${error};
       }
 
       .highlight-card.info .highlight-icon {
-        background: ${this.theme.colors.primary}20;
-        color: ${this.theme.colors.primary};
+        background: ${primary}20;
+        color: ${primary};
       }
 
       .highlight-content h4 {
         font-size: 15px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin: 0 0 4px 0;
       }
 
       .highlight-content p {
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
         margin: 0;
         line-height: 1.5;
       }
 
       /* Recommendations */
       .recommendations-section {
-        background: ${this.theme.colors.background.secondary};
+        background: ${background.secondary};
         padding: 32px;
       }
 
       .recommendations-section h3 {
         font-size: 18px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin-bottom: 20px;
       }
 
@@ -972,22 +983,22 @@ export class SummaryGenerator {
       }
 
       .recommendation-item.priority-high {
-        border-left-color: ${this.theme.colors.error};
+        border-left-color: ${error};
       }
 
       .recommendation-item.priority-medium {
-        border-left-color: ${this.theme.colors.warning};
+        border-left-color: ${warning};
       }
 
       .recommendation-item.priority-low {
-        border-left-color: ${this.theme.colors.info};
+        border-left-color: ${info};
       }
 
       .rec-number {
         flex-shrink: 0;
         width: 32px;
         height: 32px;
-        background: ${this.theme.colors.primary};
+        background: ${primary};
         color: white;
         border-radius: 50%;
         display: flex;
@@ -1011,7 +1022,7 @@ export class SummaryGenerator {
       .rec-header h4 {
         font-size: 16px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin: 0;
       }
 
@@ -1024,23 +1035,23 @@ export class SummaryGenerator {
       }
 
       .priority-high .rec-priority {
-        background: ${this.theme.colors.error}20;
-        color: ${this.theme.colors.error};
+        background: ${error}20;
+        color: ${error};
       }
 
       .priority-medium .rec-priority {
-        background: ${this.theme.colors.warning}20;
-        color: ${this.theme.colors.warning};
+        background: ${warning}20;
+        color: ${warning};
       }
 
       .priority-low .rec-priority {
-        background: ${this.theme.colors.info}20;
-        color: ${this.theme.colors.info};
+        background: ${info}20;
+        color: ${info};
       }
 
       .rec-description {
         font-size: 14px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
         margin: 0 0 12px 0;
         line-height: 1.5;
       }
@@ -1058,25 +1069,25 @@ export class SummaryGenerator {
         align-items: center;
         gap: 8px;
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
       }
 
       .rec-action svg,
       .rec-impact svg,
       .rec-effort svg {
-        color: ${this.theme.colors.primary};
+        color: ${primary};
       }
 
       /* Quick Stats */
       .quick-stats {
         padding: 32px;
-        border-top: 1px solid ${this.theme.colors.border};
+        border-top: 1px solid ${border};
       }
 
       .quick-stats h3 {
         font-size: 18px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
         margin-bottom: 20px;
       }
 
@@ -1087,7 +1098,7 @@ export class SummaryGenerator {
       }
 
       .stat-item {
-        background: ${this.theme.colors.background.secondary};
+        background: ${background.secondary};
         border-radius: 6px;
         padding: 16px;
         text-align: center;
@@ -1096,7 +1107,7 @@ export class SummaryGenerator {
       .stat-label {
         display: block;
         font-size: 12px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${text.secondary};
         margin-bottom: 8px;
       }
 
@@ -1104,11 +1115,11 @@ export class SummaryGenerator {
         display: block;
         font-size: 24px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${text.primary};
       }
 
       .stat-value.critical {
-        color: ${this.theme.colors.error};
+        color: ${error};
       }
 
       /* Responsive */
@@ -1150,6 +1161,11 @@ export class SummaryGenerator {
    * Generate summary JavaScript
    */
   private generateSummaryJS(): string {
+    const colors = this.theme.colors || {} as any;
+    const success = colors.success || '#28A745';
+    const error = colors.error || '#DC3545';
+    const warning = colors.warning || '#FFC107';
+    
     return `
       (function() {
         const summaryData = window.summaryData;
@@ -1171,9 +1187,9 @@ export class SummaryGenerator {
           const innerRadius = outerRadius * 0.6;
           
           const data = [
-            { value: stats.passedScenarios, color: '${this.theme.colors.success}' },
-            { value: stats.failedScenarios, color: '${this.theme.colors.error}' },
-            { value: stats.skippedScenarios, color: '${this.theme.colors.warning}' }
+            { value: stats.passedScenarios, color: '${success}' },
+            { value: stats.failedScenarios, color: '${error}' },
+            { value: stats.skippedScenarios, color: '${warning}' }
           ];
           
           const total = data.reduce((sum, item) => sum + item.value, 0);
@@ -1336,16 +1352,16 @@ export class SummaryGenerator {
       alert: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
       info: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>'
     };
-    return icons[type] || icons.info;
+    return icons[type] || icons['info'] || '';
   }
 
   private identifyNewFailures(data: ExecutionSummary): any[] {
     // In a real implementation, this would compare with previous run data
     if (!data.previousRun) return [];
     
-    return data.scenarios.filter(s => 
+    return data.scenarios.filter((s: ScenarioSummary) => 
       s.status === 'failed' && 
-      data.previousRun!.failedScenarios?.indexOf(s.name) === -1
+      data.previousRun!.failedScenarios?.indexOf(s.name || '') === -1
     );
   }
 
@@ -1353,7 +1369,7 @@ export class SummaryGenerator {
     // Identify tests that have inconsistent results
     const testResults = new Map<string, number>();
     
-    data.scenarios.forEach(scenario => {
+    data.scenarios.forEach((scenario: ScenarioSummary) => {
       if (scenario.retryCount && scenario.retryCount > 0) {
         testResults.set(scenario.name, (testResults.get(scenario.name) || 0) + 1);
       }
@@ -1367,8 +1383,8 @@ export class SummaryGenerator {
   private calculateParallelEfficiency(data: ExecutionSummary): number {
     if (data.parallelWorkers <= 1) return 100;
     
-    const totalDuration = data.endTime - data.startTime;
-    const sequentialDuration = data.scenarios.reduce((sum, s) => sum + s.duration, 0);
+    const totalDuration = (data.endTime ? new Date(data.endTime).getTime() : Date.now()) - (data.startTime ? new Date(data.startTime).getTime() : Date.now());
+    const sequentialDuration = data.scenarios.reduce((sum: number, s: ScenarioSummary) => sum + s.duration, 0);
     const theoreticalParallelDuration = sequentialDuration / data.parallelWorkers;
     
     return Math.min(100, (theoreticalParallelDuration / totalDuration) * 100);
@@ -1384,20 +1400,20 @@ export class SummaryGenerator {
     };
     
     failedScenarios.forEach(scenario => {
-      const failedStep = scenario.steps.find((s: any) => s.status === 'failed');
+      const failedStep = scenario.steps?.find((s: any) => s.status === 'failed');
       if (failedStep && failedStep.error) {
         const errorMessage = failedStep.error.message.toLowerCase();
         
         if (errorMessage.includes('element not found') || errorMessage.includes('no element found')) {
-          errorTypes.elementNotFound++;
+          errorTypes['elementNotFound'] = (errorTypes['elementNotFound'] || 0) + 1;
         } else if (errorMessage.includes('timeout')) {
-          errorTypes.timeout++;
+          errorTypes['timeout'] = (errorTypes['timeout'] || 0) + 1;
         } else if (errorMessage.includes('assertion') || errorMessage.includes('expected')) {
-          errorTypes.assertion++;
+          errorTypes['assertion'] = (errorTypes['assertion'] || 0) + 1;
         } else if (errorMessage.includes('api') || errorMessage.includes('request')) {
-          errorTypes.api++;
+          errorTypes['api'] = (errorTypes['api'] || 0) + 1;
         } else {
-          errorTypes.other++;
+          errorTypes['other'] = (errorTypes['other'] || 0) + 1;
         }
       }
     });
@@ -1413,11 +1429,11 @@ export class SummaryGenerator {
       e2e: 0
     };
     
-    data.scenarios.forEach(scenario => {
-      (scenario.tags || []).forEach(tag => {
+    data.scenarios.forEach((scenario: ScenarioSummary) => {
+      (scenario.tags || []).forEach((tag: string) => {
         const cleanTag = tag.replace('@', '').toLowerCase();
         if (tagCounts.hasOwnProperty(cleanTag)) {
-          tagCounts[cleanTag]++;
+          tagCounts[cleanTag] = (tagCounts[cleanTag] || 0) + 1;
         }
       });
     });

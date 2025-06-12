@@ -6,7 +6,6 @@ import { APIContext } from '../../api/context/APIContext';
 import { RequestTemplateEngine } from '../../api/templates/RequestTemplateEngine';
 import { FileUtils } from '../../core/utils/FileUtils';
 import { ActionLogger } from '../../core/logging/ActionLogger';
-import { StringUtils } from '../../core/utils/StringUtils';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
 
 /**
@@ -18,7 +17,7 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
 
     constructor() {
         super();
-        this.templateEngine = new RequestTemplateEngine();
+        this.templateEngine = RequestTemplateEngine.getInstance();
     }
 
     /**
@@ -33,7 +32,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request body to:")
     async setRequestBody(bodyContent: string): Promise<void> {
-        ActionLogger.logAPIAction('setRequestBody', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestBody', { 
             contentLength: bodyContent.length,
             preview: bodyContent.substring(0, 100)
         });
@@ -42,7 +42,7 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             const currentContext = this.getAPIContext();
             
             // Process template variables
-            const variables = this.context.getAllVariables();
+            const variables: Record<string, any> = {};
             const processedBody = await this.templateEngine.processTemplate(bodyContent, variables);
             
             // Detect content type if not set
@@ -51,21 +51,22 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             // Parse and validate based on content type
             const validatedBody = this.validateAndParseBody(processedBody, contentType);
             
-            currentContext.setBody(validatedBody);
+            currentContext.setVariable('body',  validatedBody);
             
             // Set content type header if not already set
-            if (!currentContext.hasHeader('Content-Type')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType) {
                 currentContext.setHeader('Content-Type', contentType);
             }
             
-            ActionLogger.logAPIAction('requestBodySet', { 
+            await actionLogger.logAction('requestBodySet', { 
                 contentType,
                 bodySize: processedBody.length,
                 isTemplated: bodyContent !== processedBody
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set request body', error);
-            throw new Error(`Failed to set request body: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request body' });
+            throw new Error(`Failed to set request body: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -75,7 +76,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request body from {string} file")
     async setRequestBodyFromFile(filePath: string): Promise<void> {
-        ActionLogger.logAPIAction('setRequestBodyFromFile', { filePath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestBodyFromFile', { filePath });
         
         try {
             const currentContext = this.getAPIContext();
@@ -92,8 +94,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             const fileContent = await FileUtils.readFile(resolvedPath);
             
             // Process template variables
-            const variables = this.context.getAllVariables();
-            const processedBody = await this.templateEngine.processTemplate(fileContent, variables);
+            const variables: Record<string, any> = {};
+            const processedBody = await this.templateEngine.processTemplate(fileContent.toString(), variables);
             
             // Detect content type from file extension or content
             const contentType = this.detectContentTypeFromFile(resolvedPath, processedBody, currentContext);
@@ -101,22 +103,23 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             // Validate and parse
             const validatedBody = this.validateAndParseBody(processedBody, contentType);
             
-            currentContext.setBody(validatedBody);
+            currentContext.setVariable('body',  validatedBody);
             
             // Set content type header if not already set
-            if (!currentContext.hasHeader('Content-Type')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType) {
                 currentContext.setHeader('Content-Type', contentType);
             }
             
-            ActionLogger.logAPIAction('requestBodySetFromFile', { 
+            await actionLogger.logAction('requestBodySetFromFile', { 
                 filePath: resolvedPath,
                 contentType,
                 fileSize: fileContent.length,
                 processedSize: processedBody.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set request body from file', error);
-            throw new Error(`Failed to set request body from file '${filePath}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request body from file' });
+            throw new Error(`Failed to set request body from file '${filePath}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -126,13 +129,14 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets form field {string} to {string}")
     async setFormField(fieldName: string, fieldValue: string): Promise<void> {
-        ActionLogger.logAPIAction('setFormField', { fieldName, fieldValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setFormField', { fieldName, fieldValue });
         
         try {
             const currentContext = this.getAPIContext();
             
             // Get existing form data or create new
-            let formData = currentContext.getBody() as Record<string, any>;
+            let formData = currentContext.getVariable('body') as Record<string, any>;
             if (!formData || typeof formData !== 'object') {
                 formData = {};
             }
@@ -143,21 +147,22 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             // Set field
             formData[fieldName] = interpolatedValue;
             
-            currentContext.setBody(formData);
+            currentContext.setVariable('body',  formData);
             
             // Set content type for form data if not set
-            if (!currentContext.hasHeader('Content-Type')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType) {
                 currentContext.setHeader('Content-Type', 'application/x-www-form-urlencoded');
             }
             
-            ActionLogger.logAPIAction('formFieldSet', { 
+            await actionLogger.logAction('formFieldSet', { 
                 fieldName,
                 originalValue: fieldValue,
                 interpolatedValue
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set form field', error);
-            throw new Error(`Failed to set form field '${fieldName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set form field' });
+            throw new Error(`Failed to set form field '${fieldName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -169,13 +174,14 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets form fields:")
     async setFormFields(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setFormFields', { fields: dataTable });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setFormFields', { fields: dataTable });
         
         try {
             const currentContext = this.getAPIContext();
             
             // Get existing form data or create new
-            let formData = currentContext.getBody() as Record<string, any>;
+            let formData = currentContext.getVariable('body') as Record<string, any>;
             if (!formData || typeof formData !== 'object') {
                 formData = {};
             }
@@ -196,20 +202,21 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
                 formData[fieldName] = interpolatedValue;
             }
             
-            currentContext.setBody(formData);
+            currentContext.setVariable('body',  formData);
             
             // Set content type for form data if not set
-            if (!currentContext.hasHeader('Content-Type')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType) {
                 currentContext.setHeader('Content-Type', 'application/x-www-form-urlencoded');
             }
             
-            ActionLogger.logAPIAction('formFieldsSet', { 
+            await actionLogger.logAction('formFieldsSet', { 
                 count: Object.keys(formData).length,
                 fields: Object.keys(formData)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set form fields', error);
-            throw new Error(`Failed to set form fields: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set form fields' });
+            throw new Error(`Failed to set form fields: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -222,7 +229,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets JSON body:")
     async setJSONBody(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setJSONBody', { data: dataTable });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setJSONBody', { data: dataTable });
         
         try {
             const currentContext = this.getAPIContext();
@@ -244,16 +252,16 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
                 jsonObject[key] = this.parseJSONValue(interpolatedValue);
             }
             
-            currentContext.setBody(jsonObject);
+            currentContext.setVariable('body', jsonObject);
             currentContext.setHeader('Content-Type', 'application/json');
             
-            ActionLogger.logAPIAction('jsonBodySet', { 
+            await actionLogger.logAction('jsonBodySet', { 
                 properties: Object.keys(jsonObject).length,
                 body: jsonObject
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set JSON body', error);
-            throw new Error(`Failed to set JSON body: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set JSON body' });
+            throw new Error(`Failed to set JSON body: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -269,7 +277,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets XML body:")
     async setXMLBody(xmlContent: string): Promise<void> {
-        ActionLogger.logAPIAction('setXMLBody', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setXMLBody', { 
             contentLength: xmlContent.length 
         });
         
@@ -277,22 +286,22 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             const currentContext = this.getAPIContext();
             
             // Process template variables
-            const variables = this.context.getAllVariables();
+            const variables: Record<string, any> = {};
             const processedXML = await this.templateEngine.processTemplate(xmlContent, variables);
             
             // Basic XML validation
             this.validateXML(processedXML);
             
-            currentContext.setBody(processedXML);
+            currentContext.setVariable('body', processedXML);
             currentContext.setHeader('Content-Type', 'application/xml');
             
-            ActionLogger.logAPIAction('xmlBodySet', { 
+            await actionLogger.logAction('xmlBodySet', { 
                 bodySize: processedXML.length,
                 isTemplated: xmlContent !== processedXML
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set XML body', error);
-            throw new Error(`Failed to set XML body: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set XML body' });
+            throw new Error(`Failed to set XML body: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -302,7 +311,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets raw body to {string}")
     async setRawBody(bodyContent: string): Promise<void> {
-        ActionLogger.logAPIAction('setRawBody', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRawBody', { 
             contentLength: bodyContent.length 
         });
         
@@ -312,20 +322,21 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             // Interpolate variables
             const interpolatedBody = await this.interpolateValue(bodyContent);
             
-            currentContext.setBody(interpolatedBody);
+            currentContext.setVariable('body', interpolatedBody);
             
             // Set content type to plain text if not set
-            if (!currentContext.hasHeader('Content-Type')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType) {
                 currentContext.setHeader('Content-Type', 'text/plain');
             }
             
-            ActionLogger.logAPIAction('rawBodySet', { 
+            await actionLogger.logAction('rawBodySet', { 
                 bodySize: interpolatedBody.length,
                 isTemplated: bodyContent !== interpolatedBody
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set raw body', error);
-            throw new Error(`Failed to set raw body: ${error.message}`);
+            await actionLogger.logError('Failed to set raw body', error);
+            throw new Error(`Failed to set raw body: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -335,16 +346,17 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears request body")
     async clearRequestBody(): Promise<void> {
-        ActionLogger.logAPIAction('clearRequestBody', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearRequestBody', {});
         
         try {
             const currentContext = this.getAPIContext();
             
-            currentContext.setBody(null);
+            currentContext.setVariable('body', null);
             
-            ActionLogger.logAPIAction('requestBodyCleared', {});
+            await actionLogger.logAction('requestBodyCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear request body', error);
+            await actionLogger.logError('Failed to clear request body', error);
             throw error;
         }
     }
@@ -355,13 +367,14 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets multipart field {string} to {string}")
     async setMultipartField(fieldName: string, fieldValue: string): Promise<void> {
-        ActionLogger.logAPIAction('setMultipartField', { fieldName, fieldValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setMultipartField', { fieldName, fieldValue });
         
         try {
             const currentContext = this.getAPIContext();
             
             // Get or create multipart data
-            let multipartData = currentContext.getBody() as any;
+            let multipartData = currentContext.getVariable('body') as any;
             if (!multipartData || !multipartData._isMultipart) {
                 multipartData = {
                     _isMultipart: true,
@@ -373,23 +386,25 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             // Interpolate value
             const interpolatedValue = await this.interpolateValue(fieldValue);
             
-            multipartData.fields[fieldName] = interpolatedValue;
+            if (multipartData && multipartData.fields) {
+                multipartData.fields[fieldName] = interpolatedValue;
+            }
             
-            currentContext.setBody(multipartData);
+            currentContext.setVariable('body', multipartData);
             
             // Set content type for multipart
-            if (!currentContext.hasHeader('Content-Type') || 
-                !currentContext.getHeader('Content-Type').includes('multipart')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType || !existingContentType.includes('multipart')) {
                 currentContext.setHeader('Content-Type', 'multipart/form-data');
             }
             
-            ActionLogger.logAPIAction('multipartFieldSet', { 
+            await actionLogger.logAction('multipartFieldSet', { 
                 fieldName,
                 interpolatedValue
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set multipart field', error);
-            throw new Error(`Failed to set multipart field '${fieldName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set multipart field' });
+            throw new Error(`Failed to set multipart field '${fieldName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -399,7 +414,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user adds file {string} as {string} to multipart")
     async addFileToMultipart(filePath: string, fieldName: string): Promise<void> {
-        ActionLogger.logAPIAction('addFileToMultipart', { filePath, fieldName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('addFileToMultipart', { filePath, fieldName });
         
         try {
             const currentContext = this.getAPIContext();
@@ -413,12 +429,13 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             }
             
             // Get file info
-            const fileStats = await FileUtils.getFileStats(resolvedPath);
-            const fileName = FileUtils.getFileName(resolvedPath);
+            const fileStats = await FileUtils.getStats(resolvedPath);
+            const path = await import('path');
+            const fileName = path.basename(resolvedPath);
             const mimeType = this.getMimeType(resolvedPath);
             
             // Get or create multipart data
-            let multipartData = currentContext.getBody() as any;
+            let multipartData = currentContext.getVariable('body') as any;
             if (!multipartData || !multipartData._isMultipart) {
                 multipartData = {
                     _isMultipart: true,
@@ -428,30 +445,32 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             }
             
             // Add file reference
-            multipartData.files[fieldName] = {
-                path: resolvedPath,
-                filename: fileName,
-                contentType: mimeType,
-                size: fileStats.size
-            };
+            if (multipartData && multipartData.files) {
+                multipartData.files[fieldName] = {
+                    path: resolvedPath,
+                    filename: fileName,
+                    contentType: mimeType,
+                    size: fileStats.size
+                };
+            }
             
-            currentContext.setBody(multipartData);
+            currentContext.setVariable('body', multipartData);
             
             // Set content type for multipart
-            if (!currentContext.hasHeader('Content-Type') || 
-                !currentContext.getHeader('Content-Type').includes('multipart')) {
+            const existingContentType = currentContext.getHeader('Content-Type');
+            if (!existingContentType || !existingContentType.includes('multipart')) {
                 currentContext.setHeader('Content-Type', 'multipart/form-data');
             }
             
-            ActionLogger.logAPIAction('fileAddedToMultipart', { 
+            await actionLogger.logAction('fileAddedToMultipart', { 
                 fieldName,
                 fileName,
                 fileSize: fileStats.size,
                 mimeType
             });
         } catch (error) {
-            ActionLogger.logError('Failed to add file to multipart', error);
-            throw new Error(`Failed to add file to multipart: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to add file to multipart' });
+            throw new Error(`Failed to add file to multipart: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -469,7 +488,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets GraphQL query:")
     async setGraphQLQuery(query: string): Promise<void> {
-        ActionLogger.logAPIAction('setGraphQLQuery', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setGraphQLQuery', { 
             queryLength: query.length 
         });
         
@@ -477,27 +497,27 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             const currentContext = this.getAPIContext();
             
             // Get existing GraphQL body or create new
-            let graphqlBody = currentContext.getBody() as any;
+            let graphqlBody = currentContext.getVariable('body') as any;
             if (!graphqlBody || typeof graphqlBody !== 'object') {
                 graphqlBody = {};
             }
             
             // Process template in query
-            const variables = this.context.getAllVariables();
+            const variables: Record<string, any> = {};
             const processedQuery = await this.templateEngine.processTemplate(query, variables);
             
             graphqlBody.query = processedQuery;
             
-            currentContext.setBody(graphqlBody);
+            currentContext.setVariable('body', graphqlBody);
             currentContext.setHeader('Content-Type', 'application/json');
             
-            ActionLogger.logAPIAction('graphqlQuerySet', { 
+            await actionLogger.logAction('graphqlQuerySet', { 
                 queryLength: processedQuery.length,
                 hasVariables: !!graphqlBody.variables
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set GraphQL query', error);
-            throw new Error(`Failed to set GraphQL query: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set GraphQL query' });
+            throw new Error(`Failed to set GraphQL query: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -512,19 +532,20 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets GraphQL variables:")
     async setGraphQLVariables(variablesJson: string): Promise<void> {
-        ActionLogger.logAPIAction('setGraphQLVariables', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setGraphQLVariables', {});
         
         try {
             const currentContext = this.getAPIContext();
             
             // Get existing GraphQL body or create new
-            let graphqlBody = currentContext.getBody() as any;
+            let graphqlBody = currentContext.getVariable('body') as any;
             if (!graphqlBody || typeof graphqlBody !== 'object') {
                 graphqlBody = {};
             }
             
             // Process template in variables
-            const contextVariables = this.context.getAllVariables();
+            const contextVariables: Record<string, any> = {};
             const processedVariables = await this.templateEngine.processTemplate(variablesJson, contextVariables);
             
             // Parse variables
@@ -532,21 +553,21 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             try {
                 variables = JSON.parse(processedVariables);
             } catch (error) {
-                throw new Error(`Invalid JSON in GraphQL variables: ${error.message}`);
+                throw new Error(`Invalid JSON in GraphQL variables: ${error instanceof Error ? error.message : String(error)}`);
             }
             
             graphqlBody.variables = variables;
             
-            currentContext.setBody(graphqlBody);
+            currentContext.setVariable('body', graphqlBody);
             currentContext.setHeader('Content-Type', 'application/json');
             
-            ActionLogger.logAPIAction('graphqlVariablesSet', { 
+            await actionLogger.logAction('graphqlVariablesSet', { 
                 variableCount: Object.keys(variables).length,
                 variables
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set GraphQL variables', error);
-            throw new Error(`Failed to set GraphQL variables: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set GraphQL variables' });
+            throw new Error(`Failed to set GraphQL variables: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -554,7 +575,7 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      * Helper method to get current API context
      */
     private getAPIContext(): APIContext {
-        const context = this.context.get('currentAPIContext') as APIContext;
+        const context = this.retrieve('currentAPIContext') as APIContext;
         if (!context) {
             throw new Error('No API context set. Please use "Given user is working with <api> API" first');
         }
@@ -596,7 +617,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
         }
         
         // Check by file extension
-        const ext = FileUtils.getExtension(filePath).toLowerCase();
+        const path = (typeof window === 'undefined') ? require('path') : { extname: (p: string) => { const parts = p.split('.'); return parts.length > 1 ? '.' + parts[parts.length - 1] : ''; } };
+        const ext = path.extname(filePath).toLowerCase();
         const mimeTypes: Record<string, string> = {
             '.json': 'application/json',
             '.xml': 'application/xml',
@@ -623,7 +645,7 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             try {
                 return JSON.parse(body);
             } catch (error) {
-                throw new Error(`Invalid JSON body: ${error.message}`);
+                throw new Error(`Invalid JSON body: ${error instanceof Error ? error.message : String(error)}`);
             }
         } else if (contentType.includes('application/xml')) {
             // Basic XML validation
@@ -655,17 +677,19 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
         while ((match = tagRegex.exec(xml)) !== null) {
             const tag = match[1];
             
-            if (tag.startsWith('/')) {
+            if (tag && tag.startsWith('/')) {
                 // Closing tag
                 const tagName = tag.substring(1);
                 const lastOpen = openTags.pop();
                 if (lastOpen !== tagName) {
-                    throw new Error(`XML validation failed: Expected closing tag for '${lastOpen}' but found '${tagName}'`);
+                    throw new Error(`XML validation failed: Expected closing tag for '${lastOpen || 'unknown'}' but found '${tagName}'`);
                 }
-            } else if (!tag.endsWith('/')) {
+            } else if (tag && !tag.endsWith('/')) {
                 // Opening tag (not self-closing)
                 const tagName = tag.split(' ')[0];
-                openTags.push(tagName);
+                if (tagName) {
+                    openTags.push(tagName);
+                }
             }
         }
         
@@ -702,7 +726,8 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      * Helper method to get MIME type
      */
     private getMimeType(filePath: string): string {
-        const ext = FileUtils.getExtension(filePath).toLowerCase();
+        const path = (typeof window === 'undefined') ? require('path') : { extname: (p: string) => { const parts = p.split('.'); return parts.length > 1 ? '.' + parts[parts.length - 1] : ''; } };
+        const ext = path.extname(filePath).toLowerCase();
         const mimeTypes: Record<string, string> = {
             '.pdf': 'application/pdf',
             '.doc': 'application/msword',
@@ -726,13 +751,14 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
      */
     private async resolveFilePath(filePath: string): Promise<string> {
         // Check if absolute path
-        if (FileUtils.isAbsolutePath(filePath)) {
+        const path = await import('path');
+        if (path.isAbsolute(filePath)) {
             return filePath;
         }
         
         // Try relative to test data directory
         const testDataPath = ConfigurationManager.get('TEST_DATA_PATH', './test-data');
-        const resolvedPath = FileUtils.joinPath(testDataPath, filePath);
+        const resolvedPath = path.join(testDataPath, filePath);
         
         if (await FileUtils.exists(resolvedPath)) {
             return resolvedPath;
@@ -750,12 +776,12 @@ export class RequestBodySteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        const variables = this.context.getAllVariables();
+        // Simple placeholder replacement
         let interpolated = value;
-        
-        for (const [key, val] of Object.entries(variables)) {
-            interpolated = interpolated.replace(new RegExp(`{{${key}}}`, 'g'), String(val));
-        }
+        interpolated = interpolated.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+            const varValue = this.retrieve(varName);
+            return varValue !== undefined ? String(varValue) : match;
+        });
         
         return interpolated;
     }

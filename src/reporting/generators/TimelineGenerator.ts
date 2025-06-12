@@ -1,12 +1,54 @@
 // src/reporting/generators/TimelineGenerator.ts
 
-import { TimelineData, ExecutionTimeline, TimelineEvent, TimelineGroup, ReportTheme } from '../types/reporting.types';
-import { ScenarioResult, StepResult } from '../../bdd/types/bdd.types';
+import { TimelineData, ReportTheme } from '../types/reporting.types';
 import { DateUtils } from '../../core/utils/DateUtils';
 import { Logger } from '../../core/utils/Logger';
+import { FeatureReport, ScenarioReport, TestStatus } from '../types/reporting.types';
+
+// Define missing types locally
+interface ExecutionTimeline {
+  events: TimelineEvent[];
+  groups: TimelineGroup[];
+  startTime: Date;
+  endTime: Date;
+  totalDuration: number;
+  milestones: Array<{ time: Date; label: string; type: string }>;
+}
+
+interface TimelineEvent {
+  id: string;
+  groupId: string;
+  name: string;
+  type: 'feature' | 'scenario' | 'step' | 'parallel';
+  status: TestStatus;
+  startTime: Date;
+  endTime: Date;
+  duration: number;
+  details?: any;
+}
+
+interface TimelineGroup {
+  id: string;
+  name: string;
+  type: 'feature' | 'worker' | 'browser';
+  color: string;
+  items: TimelineEvent[];
+}
+
+interface TimelineDataWithFeatures extends TimelineData {
+  features?: FeatureReport[];
+  parallelExecutions?: Array<{
+    workerId: number;
+    executions: Array<{
+      scenario: ScenarioReport;
+      startTime: Date;
+      endTime: Date;
+    }>;
+  }>;
+}
 
 export class TimelineGenerator {
-  private static readonly logger = new Logger(TimelineGenerator.name);
+  private static readonly logger = Logger.getInstance(TimelineGenerator.name);
   private theme: ReportTheme;
 
   constructor(theme: ReportTheme) {
@@ -16,7 +58,7 @@ export class TimelineGenerator {
   /**
    * Generate interactive execution timeline
    */
-  async generateTimeline(data: TimelineData): Promise<string> {
+  async generateTimeline(data: TimelineDataWithFeatures): Promise<string> {
     TimelineGenerator.logger.info('Generating execution timeline');
 
     const timeline = this.buildTimelineData(data);
@@ -36,7 +78,7 @@ export class TimelineGenerator {
   /**
    * Build timeline data structure
    */
-  private buildTimelineData(data: TimelineData): ExecutionTimeline {
+  private buildTimelineData(data: TimelineDataWithFeatures): ExecutionTimeline {
     const events: TimelineEvent[] = [];
     const groups: TimelineGroup[] = [];
     
@@ -46,68 +88,75 @@ export class TimelineGenerator {
     const totalDuration = endTime.getTime() - startTime.getTime();
 
     // Process features
-    data.features.forEach((feature, featureIndex) => {
+    data.features?.forEach((feature: FeatureReport, featureIndex: number) => {
       const featureGroup: TimelineGroup = {
         id: `feature-${featureIndex}`,
-        name: feature.name,
+        name: feature.name || 'Unnamed Feature',
         type: 'feature',
-        color: this.getFeatureColor(feature.status)
+        color: this.getFeatureColor(feature.status) || '#666',
+        items: []
       };
       groups.push(featureGroup);
 
       // Add feature event
-      events.push({
+      const featureEvent: TimelineEvent = {
         id: `event-feature-${featureIndex}`,
         groupId: featureGroup.id,
-        title: feature.name,
-        start: new Date(feature.startTime),
-        end: new Date(feature.endTime),
+        name: feature.name || 'Unnamed Feature',
+        startTime: new Date(feature.startTime),
+        endTime: new Date(feature.endTime),
         duration: feature.duration,
         status: feature.status,
         type: 'feature',
         details: {
           scenarios: feature.scenarios.length,
-          passed: feature.passed,
-          failed: feature.failed,
-          skipped: feature.skipped
+          passed: feature.scenarios.filter((s: any) => s.status === TestStatus.PASSED).length,
+          failed: feature.scenarios.filter((s: any) => s.status === TestStatus.FAILED).length,
+          skipped: feature.scenarios.filter((s: any) => s.status === TestStatus.SKIPPED).length
         }
-      });
+      };
+      events.push(featureEvent);
+      featureGroup.items.push(featureEvent);
 
       // Process scenarios
-      feature.scenarios.forEach((scenario, scenarioIndex) => {
-        events.push({
+      feature.scenarios.forEach((scenario: any, scenarioIndex: number) => {
+        const scenarioEvent: TimelineEvent = {
           id: `event-scenario-${featureIndex}-${scenarioIndex}`,
           groupId: featureGroup.id,
-          title: scenario.name,
-          start: new Date(scenario.startTime),
-          end: new Date(scenario.endTime),
+          name: scenario.name || scenario.title || 'Unnamed Scenario',
+          startTime: new Date(scenario.startTime),
+          endTime: new Date(scenario.endTime),
           duration: scenario.duration,
           status: scenario.status,
           type: 'scenario',
-          parent: `event-feature-${featureIndex}`,
           details: {
-            steps: scenario.steps.length,
-            retries: scenario.retryCount || 0
+            steps: scenario.steps?.length || 0,
+            retries: scenario.retryCount || 0,
+            parent: `event-feature-${featureIndex}`
           }
-        });
+        };
+        events.push(scenarioEvent);
+        featureGroup.items.push(scenarioEvent);
 
         // Process steps for failed scenarios
-        if (scenario.status === 'failed') {
-          scenario.steps.forEach((step, stepIndex) => {
-            events.push({
+        if (scenario.status === TestStatus.FAILED && scenario.steps) {
+          scenario.steps.forEach((step: any, stepIndex: number) => {
+            const stepEvent: TimelineEvent = {
               id: `event-step-${featureIndex}-${scenarioIndex}-${stepIndex}`,
               groupId: featureGroup.id,
-              title: step.text,
-              start: new Date(step.startTime),
-              end: new Date(step.endTime),
+              name: step.text,
+              startTime: new Date(step.startTime),
+              endTime: new Date(step.endTime),
               duration: step.duration,
               status: step.status,
               type: 'step',
-              parent: `event-scenario-${featureIndex}-${scenarioIndex}`,
               details: {
-                error: step.error?.message
+                error: step.result?.error?.message || step.error?.message,
+                parent: `event-scenario-${featureIndex}-${scenarioIndex}`
               }
-            });
+            };
+            events.push(stepEvent);
+            featureGroup.items.push(stepEvent);
           });
         }
       });
@@ -115,29 +164,32 @@ export class TimelineGenerator {
 
     // Add parallel execution lanes if applicable
     if (data.parallelExecutions) {
-      data.parallelExecutions.forEach((worker, index) => {
+      data.parallelExecutions.forEach((worker: any, index: number) => {
         const workerGroup: TimelineGroup = {
           id: `worker-${index}`,
-          name: `Worker ${index + 1}`,
+          name: `Worker ${worker.workerId}`,
           type: 'worker',
-          color: this.theme.colors.info
+          color: this.theme.colors?.info || this.theme.infoColor,
+          items: []
         };
         groups.push(workerGroup);
 
-        worker.executions.forEach((execution, execIndex) => {
-          events.push({
+        worker.executions.forEach((execution: any, execIndex: number) => {
+          const executionEvent: TimelineEvent = {
             id: `event-worker-${index}-${execIndex}`,
             groupId: workerGroup.id,
-            title: execution.name,
-            start: new Date(execution.startTime),
-            end: new Date(execution.endTime),
-            duration: execution.duration,
-            status: execution.status,
-            type: 'execution',
+            name: execution.scenario.name,
+            startTime: new Date(execution.startTime),
+            endTime: new Date(execution.endTime),
+            duration: execution.endTime.getTime() - execution.startTime.getTime(),
+            status: execution.scenario.status,
+            type: 'scenario',
             details: {
-              scenarios: execution.scenarioCount
+              scenarios: 1
             }
-          });
+          };
+          events.push(executionEvent);
+          workerGroup.items.push(executionEvent);
         });
       });
     }
@@ -148,11 +200,11 @@ export class TimelineGenerator {
       totalDuration,
       events,
       groups,
-      metadata: {
-        totalFeatures: data.features.length,
-        totalScenarios: data.features.reduce((sum, f) => sum + f.scenarios.length, 0),
-        parallelWorkers: data.parallelExecutions?.length || 1
-      }
+      milestones: data.milestones?.map(m => ({
+        time: new Date(m.timestamp),
+        label: m.name,
+        type: m.type
+      })) || []
     };
   }
 
@@ -203,26 +255,20 @@ export class TimelineGenerator {
         </div>
         <div class="summary-item">
           <span class="summary-label">Start Time:</span>
-          <span class="summary-value">${DateUtils.formatTime(timeline.startTime)}</span>
+          <span class="summary-value">${DateUtils.formatDateTime(timeline.startTime)}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">End Time:</span>
-          <span class="summary-value">${DateUtils.formatTime(timeline.endTime)}</span>
+          <span class="summary-value">${DateUtils.formatDateTime(timeline.endTime)}</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">Features:</span>
-          <span class="summary-value">${timeline.metadata.totalFeatures}</span>
+          <span class="summary-label">Total Events:</span>
+          <span class="summary-value">${timeline.events.length}</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">Scenarios:</span>
-          <span class="summary-value">${timeline.metadata.totalScenarios}</span>
+          <span class="summary-label">Groups:</span>
+          <span class="summary-value">${timeline.groups.length}</span>
         </div>
-        ${timeline.metadata.parallelWorkers > 1 ? `
-          <div class="summary-item">
-            <span class="summary-label">Parallel Workers:</span>
-            <span class="summary-value">${timeline.metadata.parallelWorkers}</span>
-          </div>
-        ` : ''}
       </div>
       
       <div class="timeline-viewport" id="timelineViewport">
@@ -281,7 +327,7 @@ export class TimelineGenerator {
       }
 
       .timeline-header h2 {
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         font-size: 20px;
         font-weight: 600;
         margin: 0;
@@ -298,17 +344,17 @@ export class TimelineGenerator {
         align-items: center;
         gap: 6px;
         padding: 6px 12px;
-        background: ${this.theme.colors.background.secondary};
-        border: 1px solid ${this.theme.colors.border};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
+        border: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         border-radius: 6px;
         font-size: 13px;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         cursor: pointer;
         transition: all 0.2s;
       }
 
       .timeline-btn:hover {
-        background: ${this.theme.colors.primary};
+        background: ${this.theme.colors?.primary || this.theme.primaryColor};
         color: white;
         transform: translateY(-1px);
       }
@@ -323,7 +369,7 @@ export class TimelineGenerator {
         gap: 16px;
         margin-left: 16px;
         padding-left: 16px;
-        border-left: 1px solid ${this.theme.colors.border};
+        border-left: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
       }
 
       .timeline-filter label {
@@ -331,7 +377,7 @@ export class TimelineGenerator {
         align-items: center;
         gap: 6px;
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
         cursor: pointer;
       }
 
@@ -339,7 +385,7 @@ export class TimelineGenerator {
         display: flex;
         gap: 24px;
         padding: 16px;
-        background: ${this.theme.colors.background.secondary};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
         border-radius: 6px;
         margin-bottom: 20px;
       }
@@ -352,22 +398,22 @@ export class TimelineGenerator {
 
       .summary-label {
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
       }
 
       .summary-value {
         font-size: 14px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
       }
 
       .timeline-viewport {
         position: relative;
         height: 400px;
         overflow: hidden;
-        border: 1px solid ${this.theme.colors.border};
+        border: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         border-radius: 6px;
-        background: ${this.theme.colors.background.primary};
+        background: ${this.theme.colors?.background || this.theme.backgroundColor};
       }
 
       .timeline-canvas {
@@ -383,8 +429,8 @@ export class TimelineGenerator {
         position: sticky;
         top: 0;
         height: 40px;
-        background: ${this.theme.colors.background.secondary};
-        border-bottom: 1px solid ${this.theme.colors.border};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
+        border-bottom: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         z-index: 10;
         display: flex;
         align-items: center;
@@ -397,7 +443,7 @@ export class TimelineGenerator {
 
       .timeline-group {
         position: relative;
-        border-bottom: 1px solid ${this.theme.colors.border};
+        border-bottom: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
       }
 
       .group-header {
@@ -405,8 +451,8 @@ export class TimelineGenerator {
         left: 0;
         width: 200px;
         padding: 12px 16px;
-        background: ${this.theme.colors.background.secondary};
-        border-right: 1px solid ${this.theme.colors.border};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
+        border-right: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         z-index: 5;
       }
 
@@ -414,7 +460,7 @@ export class TimelineGenerator {
         display: block;
         font-size: 14px;
         font-weight: 500;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -424,8 +470,8 @@ export class TimelineGenerator {
         display: inline-block;
         margin-top: 4px;
         padding: 2px 8px;
-        background: ${this.theme.colors.primary}20;
-        color: ${this.theme.colors.primary};
+        background: ${this.theme.colors?.primary || this.theme.primaryColor}20;
+        color: ${this.theme.colors?.primary || this.theme.primaryColor};
         font-size: 11px;
         font-weight: 500;
         border-radius: 3px;
@@ -436,7 +482,7 @@ export class TimelineGenerator {
         position: relative;
         height: 60px;
         margin-left: 200px;
-        background: ${this.theme.colors.background.primary};
+        background: ${this.theme.colors?.background || this.theme.backgroundColor};
       }
 
       .timeline-event {
@@ -463,15 +509,15 @@ export class TimelineGenerator {
       }
 
       .timeline-event.passed {
-        background: ${this.theme.colors.success};
+        background: ${this.theme.colors?.success || this.theme.successColor};
       }
 
       .timeline-event.failed {
-        background: ${this.theme.colors.error};
+        background: ${this.theme.colors?.error || this.theme.failureColor};
       }
 
       .timeline-event.skipped {
-        background: ${this.theme.colors.warning};
+        background: ${this.theme.colors?.warning || this.theme.warningColor};
       }
 
       .timeline-event.feature {
@@ -493,7 +539,7 @@ export class TimelineGenerator {
       }
 
       .timeline-event.execution {
-        background: ${this.theme.colors.info};
+        background: ${this.theme.colors?.info || this.theme.infoColor};
       }
 
       .scale-tick {
@@ -501,14 +547,14 @@ export class TimelineGenerator {
         top: 0;
         width: 1px;
         height: 40px;
-        background: ${this.theme.colors.border};
+        background: ${this.theme.colors?.border || '#e5e7eb'};
       }
 
       .scale-label {
         position: absolute;
         top: 12px;
         font-size: 11px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
         transform: translateX(-50%);
       }
 
@@ -516,7 +562,7 @@ export class TimelineGenerator {
         position: fixed;
         z-index: 1000;
         background: white;
-        border: 1px solid ${this.theme.colors.border};
+        border: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         border-radius: 6px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         padding: 12px;
@@ -529,13 +575,13 @@ export class TimelineGenerator {
         align-items: center;
         margin-bottom: 8px;
         padding-bottom: 8px;
-        border-bottom: 1px solid ${this.theme.colors.border};
+        border-bottom: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
       }
 
       .tooltip-title {
         font-size: 13px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
       }
 
       .tooltip-status {
@@ -547,23 +593,23 @@ export class TimelineGenerator {
       }
 
       .tooltip-status.passed {
-        background: ${this.theme.colors.success}20;
-        color: ${this.theme.colors.success};
+        background: ${this.theme.colors?.success || this.theme.successColor}20;
+        color: ${this.theme.colors?.success || this.theme.successColor};
       }
 
       .tooltip-status.failed {
-        background: ${this.theme.colors.error}20;
-        color: ${this.theme.colors.error};
+        background: ${this.theme.colors?.error || this.theme.failureColor}20;
+        color: ${this.theme.colors?.error || this.theme.failureColor};
       }
 
       .tooltip-status.skipped {
-        background: ${this.theme.colors.warning}20;
-        color: ${this.theme.colors.warning};
+        background: ${this.theme.colors?.warning || this.theme.warningColor}20;
+        color: ${this.theme.colors?.warning || this.theme.warningColor};
       }
 
       .tooltip-body {
         font-size: 12px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
       }
 
       .tooltip-time,
@@ -574,13 +620,13 @@ export class TimelineGenerator {
       .tooltip-details {
         margin-top: 8px;
         padding-top: 8px;
-        border-top: 1px solid ${this.theme.colors.border};
+        border-top: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         font-size: 11px;
       }
 
       .timeline-connection {
         position: absolute;
-        border-left: 2px dashed ${this.theme.colors.border};
+        border-left: 2px dashed ${this.theme.colors?.border || '#e5e7eb'};
         opacity: 0.5;
         pointer-events: none;
       }
@@ -915,18 +961,54 @@ export class TimelineGenerator {
   }
 
   /**
+   * Get theme color with fallback
+   */
+  private getThemeColor(colorPath: string, fallback: string): string {
+    const colors = this.theme.colors;
+    if (!colors) {
+      // Use direct theme properties as fallback
+      switch (colorPath) {
+        case 'primary': return this.theme.primaryColor;
+        case 'secondary': return this.theme.secondaryColor;
+        case 'success': return this.theme.successColor;
+        case 'error': return this.theme.failureColor;
+        case 'warning': return this.theme.warningColor;
+        case 'info': return this.theme.infoColor;
+        case 'text': return this.theme.textColor;
+        case 'background': return this.theme.backgroundColor;
+        default: return fallback;
+      }
+    }
+    
+    // Navigate through nested color object
+    const parts = colorPath.split('.');
+    let current: any = colors;
+    for (const part of parts) {
+      if (current && typeof current === 'object' && part in current) {
+        current = current[part];
+      } else {
+        return fallback;
+      }
+    }
+    return current || fallback;
+  }
+
+  /**
    * Get feature color based on status
    */
-  private getFeatureColor(status: string): string {
+  private getFeatureColor(status: TestStatus | string): string {
     switch (status) {
+      case TestStatus.PASSED:
       case 'passed':
-        return this.theme.colors.success;
+        return this.getThemeColor('success', this.theme.successColor);
+      case TestStatus.FAILED:
       case 'failed':
-        return this.theme.colors.error;
+        return this.getThemeColor('error', this.theme.failureColor);
+      case TestStatus.SKIPPED:
       case 'skipped':
-        return this.theme.colors.warning;
+        return this.getThemeColor('warning', this.theme.warningColor);
       default:
-        return this.theme.colors.text.secondary;
+        return this.getThemeColor('text.secondary', this.theme.textColor);
     }
   }
 

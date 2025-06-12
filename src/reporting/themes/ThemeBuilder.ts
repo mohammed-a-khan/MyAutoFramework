@@ -7,28 +7,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { ActionLogger } from '../../logging/ActionLogger';
-import { FileUtils } from '../../utils/FileUtils';
+import { Logger } from '../../core/utils/Logger';
+import { FileUtils } from '../../core/utils/FileUtils';
 import {
   ThemeConfig,
   ColorPalette,
   ThemePreset,
-  ComponentStyles,
+  ComponentStyle,
   AnimationConfig,
   ResponsiveBreakpoints,
   ThemeOutput,
   CSSVariable,
   FontConfig,
-  IconSet
-} from '../types/reporting.types';
+  IconSet,
+} from './theme.types';
 
 export class ThemeBuilder {
   private static instance: ThemeBuilder;
   private themePath: string = './themes';
   private generatedThemes: Map<string, ThemeOutput> = new Map();
   private cssVariables: Map<string, CSSVariable> = new Map();
-  private componentStyles: Map<string, ComponentStyles> = new Map();
-  
+  private componentStyles: Map<string, ComponentStyle> = new Map();
+
   // CS Brand Colors
   private readonly brandColors = {
     primary: '#93186C',
@@ -37,7 +37,7 @@ export class ThemeBuilder {
     primaryContrast: '#FFFFFF',
     secondary: '#FFFFFF',
     secondaryDark: '#F5F5F5',
-    secondaryContrast: '#000000'
+    secondaryContrast: '#000000',
   };
 
   private constructor() {}
@@ -51,25 +51,25 @@ export class ThemeBuilder {
 
   async initialize(outputPath: string = './themes'): Promise<void> {
     this.themePath = outputPath;
-    await FileUtils.ensureDirectory(this.themePath);
-    
+    await FileUtils.ensureDir(this.themePath);
+
     // Initialize CSS variables
     this.initializeCSSVariables();
-    
+
     // Initialize component styles
     this.initializeComponentStyles();
-    
-    ActionLogger.info('ThemeBuilder initialized', {
-      outputPath: this.themePath
+
+    Logger.getInstance('ThemeBuilder').info('ThemeBuilder initialized', {
+      outputPath: this.themePath,
     });
   }
 
   async buildTheme(config: ThemeConfig): Promise<ThemeOutput> {
-    const themeId = config.id || this.generateThemeId(config.name);
-    
-    ActionLogger.info(`Building theme: ${config.name}`, {
+    const themeId = config.id ?? this.generateThemeId(config.name);
+
+    Logger.getInstance('ThemeBuilder').info(`Building theme: ${config.name}`, {
       themeId,
-      preset: config.preset
+      preset: config.preset,
     });
 
     try {
@@ -87,63 +87,62 @@ export class ThemeBuilder {
       }
 
       // Generate CSS
-      const css = await this.generateCSS(config, colorPalette);
-      
+      const css = this.generateCSS(config, colorPalette);
+
       // Generate component styles
-      const components = await this.generateComponentStyles(config, colorPalette);
-      
+      const components = this.generateComponentStyles(config, colorPalette);
+
       // Generate animations
       const animations = this.generateAnimations(config.animations);
-      
+
       // Generate responsive styles
       const responsive = this.generateResponsiveStyles(config.breakpoints);
-      
+
       // Generate print styles
       const printStyles = this.generatePrintStyles(colorPalette);
-      
+
       // Combine all CSS
       const fullCSS = this.combineCSS({
         base: css,
         components,
         animations,
         responsive,
-        print: printStyles
+        print: printStyles,
       });
 
       // Minify if production
       const finalCSS = config.minify ? this.minifyCSS(fullCSS) : fullCSS;
-      
+
       // Create theme output
       const themeOutput: ThemeOutput = {
         id: themeId,
         name: config.name,
         css: finalCSS,
         colorPalette,
-        fonts: config.fonts,
-        icons: config.icons,
+        ...(config.fonts && { fonts: config.fonts }),
+        ...(config.icons && { icons: config.icons }),
         metadata: {
           created: new Date().toISOString(),
           version: '1.0.0',
-          checksum: this.generateChecksum(finalCSS)
-        }
+          checksum: this.generateChecksum(finalCSS),
+        },
       };
 
       // Save theme files
       await this.saveTheme(themeOutput);
-      
+
       // Cache generated theme
       this.generatedThemes.set(themeId, themeOutput);
-      
-      ActionLogger.info(`Theme built successfully: ${config.name}`, {
+
+      Logger.getInstance('ThemeBuilder').info(`Theme built successfully: ${config.name}`, {
         themeId,
-        cssSize: `${(finalCSS.length / 1024).toFixed(2)} KB`
+        cssSize: `${(finalCSS.length / 1024).toFixed(2)} KB`,
       });
 
       return themeOutput;
-
     } catch (error) {
-      ActionLogger.error('Error building theme', error as Error, {
-        themeName: config.name
+      Logger.getInstance('ThemeBuilder').error('Error building theme', error as Error, {
+        themeName: config.name,
       });
       throw error;
     }
@@ -155,82 +154,82 @@ export class ThemeBuilder {
       name: '--cs-primary',
       value: this.brandColors.primary,
       category: 'color',
-      description: 'Primary brand color'
-    });
-    
+      description: 'Primary brand color',
+    } as CSSVariable);
+
     this.cssVariables.set('--cs-primary-light', {
       name: '--cs-primary-light',
       value: this.brandColors.primaryLight,
-      category: 'color'
-    });
-    
+      category: 'color',
+    } as CSSVariable);
+
     this.cssVariables.set('--cs-primary-dark', {
       name: '--cs-primary-dark',
       value: this.brandColors.primaryDark,
-      category: 'color'
-    });
-    
+      category: 'color',
+    } as CSSVariable);
+
     // Typography variables
     this.cssVariables.set('--cs-font-family', {
       name: '--cs-font-family',
       value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-      category: 'typography'
-    });
-    
+      category: 'typography',
+    } as CSSVariable);
+
     this.cssVariables.set('--cs-font-size-base', {
       name: '--cs-font-size-base',
       value: '16px',
-      category: 'typography'
-    });
-    
+      category: 'typography',
+    } as CSSVariable);
+
     // Spacing variables
     const spacingSizes = [0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5];
     spacingSizes.forEach(size => {
       this.cssVariables.set(`--cs-spacing-${size}`, {
         name: `--cs-spacing-${size}`,
         value: `${size}rem`,
-        category: 'spacing'
-      });
+        category: 'spacing',
+      } as CSSVariable);
     });
-    
+
     // Border radius
     this.cssVariables.set('--cs-border-radius', {
       name: '--cs-border-radius',
       value: '0.375rem',
-      category: 'border'
-    });
-    
+      category: 'border',
+    } as CSSVariable);
+
     // Shadows
     this.cssVariables.set('--cs-shadow-sm', {
       name: '--cs-shadow-sm',
       value: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-      category: 'shadow'
-    });
-    
+      category: 'shadow',
+    } as CSSVariable);
+
     this.cssVariables.set('--cs-shadow', {
       name: '--cs-shadow',
       value: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-      category: 'shadow'
-    });
-    
+      category: 'shadow',
+    } as CSSVariable);
+
     this.cssVariables.set('--cs-shadow-lg', {
       name: '--cs-shadow-lg',
       value: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-      category: 'shadow'
-    });
-    
+      category: 'shadow',
+    } as CSSVariable);
+
     // Transitions
     this.cssVariables.set('--cs-transition', {
       name: '--cs-transition',
       value: 'all 0.3s ease',
-      category: 'animation'
-    });
-    
+      category: 'animation',
+    } as CSSVariable);
+
     this.cssVariables.set('--cs-transition-fast', {
       name: '--cs-transition-fast',
       value: 'all 0.15s ease',
-      category: 'animation'
-    });
+      category: 'animation',
+    } as CSSVariable);
   }
 
   private initializeComponentStyles(): void {
@@ -310,7 +309,7 @@ export class ThemeBuilder {
             background-color: var(--cs-primary);
             color: var(--cs-primary-contrast);
           }
-        `
+        `,
       },
       sizes: {
         sm: `
@@ -330,8 +329,8 @@ export class ThemeBuilder {
             padding: var(--cs-spacing-1) var(--cs-spacing-2);
             font-size: 1.125rem;
           }
-        `
-      }
+        `,
+      },
     });
 
     // Card styles
@@ -385,8 +384,8 @@ export class ThemeBuilder {
             box-shadow: none;
             border-width: 2px;
           }
-        `
-      }
+        `,
+      },
     });
 
     // Table styles
@@ -446,8 +445,8 @@ export class ThemeBuilder {
           .cs-table-compact td {
             padding: var(--cs-spacing-0.5);
           }
-        `
-      }
+        `,
+      },
     });
 
     // Chart container styles
@@ -500,8 +499,8 @@ export class ThemeBuilder {
           .cs-chart-container-compact {
             height: 200px;
           }
-        `
-      }
+        `,
+      },
     });
 
     // Alert/notification styles
@@ -563,8 +562,8 @@ export class ThemeBuilder {
             border-color: var(--cs-info-border);
             color: var(--cs-info-text);
           }
-        `
-      }
+        `,
+      },
     });
 
     // Badge styles
@@ -610,8 +609,8 @@ export class ThemeBuilder {
             background-color: var(--cs-info);
             color: white;
           }
-        `
-      }
+        `,
+      },
     });
 
     // Progress bar styles
@@ -687,8 +686,8 @@ export class ThemeBuilder {
           .cs-progress-sm {
             height: 4px;
           }
-        `
-      }
+        `,
+      },
     });
 
     // Navigation styles
@@ -807,8 +806,8 @@ export class ThemeBuilder {
           .cs-nav-tabs .cs-nav-link.active::after {
             display: none;
           }
-        `
-      }
+        `,
+      },
     });
   }
 
@@ -816,19 +815,19 @@ export class ThemeBuilder {
     switch (preset) {
       case 'cs-brand':
         return this.createCSBrandPalette();
-      
+
       case 'dark':
         return this.createDarkPalette();
-      
+
       case 'light':
         return this.createLightPalette();
-      
+
       case 'high-contrast':
         return this.createHighContrastPalette();
-      
+
       case 'print':
         return this.createPrintPalette();
-      
+
       default:
         return this.createCSBrandPalette();
     }
@@ -836,35 +835,42 @@ export class ThemeBuilder {
 
   private createCSBrandPalette(): ColorPalette {
     return {
+      // Core colors required by ColorPalette interface
+      background: '#FFFFFF',
+      surface: '#FFFFFF',
+      text: '#212529',
+      border: '#DEE2E6',
+      shadow: 'rgba(0, 0, 0, 0.1)',
+
       // Primary colors
       primary: this.brandColors.primary,
       primaryLight: this.brandColors.primaryLight,
       primaryDark: this.brandColors.primaryDark,
       primaryContrast: this.brandColors.primaryContrast,
-      
+
       // Secondary colors
       secondary: this.brandColors.secondary,
       secondaryLight: '#FFFFFF',
       secondaryDark: this.brandColors.secondaryDark,
       secondaryContrast: this.brandColors.secondaryContrast,
-      
+
       // Status colors
       success: '#28A745',
       successLight: '#48B461',
       successDark: '#1E7E34',
-      
+
       error: '#DC3545',
       errorLight: '#E4606D',
       errorDark: '#BD2130',
-      
+
       warning: '#FFC107',
       warningLight: '#FFCD39',
       warningDark: '#E0A800',
-      
+
       info: '#17A2B8',
       infoLight: '#3AB0C3',
       infoDark: '#138496',
-      
+
       // Neutral colors
       gray100: '#F8F9FA',
       gray200: '#E9ECEF',
@@ -875,7 +881,7 @@ export class ThemeBuilder {
       gray700: '#495057',
       gray800: '#343A40',
       gray900: '#212529',
-      
+
       // Background colors
       bgPrimary: '#FFFFFF',
       bgSecondary: '#F8F9FA',
@@ -885,7 +891,7 @@ export class ThemeBuilder {
       bgHover: 'rgba(147, 24, 108, 0.05)',
       bgStripe: 'rgba(0, 0, 0, 0.02)',
       bgNav: '#FFFFFF',
-      
+
       // Text colors
       textPrimary: '#212529',
       textSecondary: '#6C757D',
@@ -895,50 +901,57 @@ export class ThemeBuilder {
       textNav: '#495057',
       textLink: this.brandColors.primary,
       textLinkHover: this.brandColors.primaryDark,
-      
+
       // Border colors
       borderColor: '#DEE2E6',
       borderColorLight: '#E9ECEF',
       borderColorDark: '#CED4DA',
-      
+
       // Shadow colors
       shadowColor: 'rgba(0, 0, 0, 0.1)',
       shadowColorLight: 'rgba(0, 0, 0, 0.05)',
-      shadowColorDark: 'rgba(0, 0, 0, 0.15)'
+      shadowColorDark: 'rgba(0, 0, 0, 0.15)',
     };
   }
 
   private createDarkPalette(): ColorPalette {
     return {
+      // Core colors required by ColorPalette interface
+      background: '#1A1A1A',
+      surface: '#2B2B2B',
+      text: '#F4F4F4',
+      border: '#3A3A3A',
+      shadow: 'rgba(0, 0, 0, 0.3)',
+
       // Primary colors (adjusted for dark theme)
       primary: '#B91C84',
       primaryLight: '#D13A9C',
       primaryDark: '#93186C',
       primaryContrast: '#FFFFFF',
-      
+
       // Secondary colors
       secondary: '#2B2B2B',
       secondaryLight: '#3A3A3A',
       secondaryDark: '#1A1A1A',
       secondaryContrast: '#FFFFFF',
-      
+
       // Status colors (adjusted for dark backgrounds)
       success: '#48B461',
       successLight: '#5BC073',
       successDark: '#28A745',
-      
+
       error: '#E4606D',
       errorLight: '#E97681',
       errorDark: '#DC3545',
-      
+
       warning: '#FFCD39',
       warningLight: '#FFD451',
       warningDark: '#FFC107',
-      
+
       info: '#3AB0C3',
       infoLight: '#52B9CB',
       infoDark: '#17A2B8',
-      
+
       // Neutral colors (inverted)
       gray100: '#1A1A1A',
       gray200: '#2B2B2B',
@@ -949,7 +962,7 @@ export class ThemeBuilder {
       gray700: '#B0B0B0',
       gray800: '#D2D2D2',
       gray900: '#F4F4F4',
-      
+
       // Background colors
       bgPrimary: '#1A1A1A',
       bgSecondary: '#2B2B2B',
@@ -959,7 +972,7 @@ export class ThemeBuilder {
       bgHover: 'rgba(185, 28, 132, 0.1)',
       bgStripe: 'rgba(255, 255, 255, 0.02)',
       bgNav: '#2B2B2B',
-      
+
       // Text colors
       textPrimary: '#F4F4F4',
       textSecondary: '#B0B0B0',
@@ -969,23 +982,23 @@ export class ThemeBuilder {
       textNav: '#D2D2D2',
       textLink: '#D13A9C',
       textLinkHover: '#E95BAB',
-      
+
       // Border colors
       borderColor: '#3A3A3A',
       borderColorLight: '#4A4A4A',
       borderColorDark: '#2B2B2B',
-      
+
       // Shadow colors
       shadowColor: 'rgba(0, 0, 0, 0.3)',
       shadowColorLight: 'rgba(0, 0, 0, 0.2)',
-      shadowColorDark: 'rgba(0, 0, 0, 0.4)'
+      shadowColorDark: 'rgba(0, 0, 0, 0.4)',
     };
   }
 
   private createLightPalette(): ColorPalette {
     // Similar to CS brand but with lighter tones
     const base = this.createCSBrandPalette();
-    
+
     return {
       ...base,
       bgPrimary: '#FFFFFF',
@@ -994,47 +1007,54 @@ export class ThemeBuilder {
       bgCard: '#FFFFFF',
       bgMuted: '#FAFBFC',
       bgHover: 'rgba(147, 24, 108, 0.03)',
-      
+
       borderColor: '#E1E4E8',
       borderColorLight: '#EBEEF1',
       borderColorDark: '#D1D5DB',
-      
+
       shadowColor: 'rgba(0, 0, 0, 0.08)',
       shadowColorLight: 'rgba(0, 0, 0, 0.04)',
-      shadowColorDark: 'rgba(0, 0, 0, 0.12)'
+      shadowColorDark: 'rgba(0, 0, 0, 0.12)',
     };
   }
 
   private createHighContrastPalette(): ColorPalette {
     return {
+      // Core colors required by ColorPalette interface
+      background: '#FFFFFF',
+      surface: '#FFFFFF',
+      text: '#000000',
+      border: '#000000',
+      shadow: 'transparent',
+
       // High contrast colors
       primary: '#000000',
       primaryLight: '#333333',
       primaryDark: '#000000',
       primaryContrast: '#FFFFFF',
-      
+
       secondary: '#FFFFFF',
       secondaryLight: '#FFFFFF',
       secondaryDark: '#F0F0F0',
       secondaryContrast: '#000000',
-      
+
       // Status colors with maximum contrast
       success: '#00FF00',
       successLight: '#33FF33',
       successDark: '#00CC00',
-      
+
       error: '#FF0000',
       errorLight: '#FF3333',
       errorDark: '#CC0000',
-      
+
       warning: '#FFFF00',
       warningLight: '#FFFF33',
       warningDark: '#CCCC00',
-      
+
       info: '#00FFFF',
       infoLight: '#33FFFF',
       infoDark: '#00CCCC',
-      
+
       // Black and white only
       gray100: '#FFFFFF',
       gray200: '#FFFFFF',
@@ -1045,7 +1065,7 @@ export class ThemeBuilder {
       gray700: '#333333',
       gray800: '#000000',
       gray900: '#000000',
-      
+
       // High contrast backgrounds
       bgPrimary: '#FFFFFF',
       bgSecondary: '#FFFFFF',
@@ -1055,7 +1075,7 @@ export class ThemeBuilder {
       bgHover: '#E0E0E0',
       bgStripe: '#F5F5F5',
       bgNav: '#000000',
-      
+
       // High contrast text
       textPrimary: '#000000',
       textSecondary: '#000000',
@@ -1065,49 +1085,56 @@ export class ThemeBuilder {
       textNav: '#FFFFFF',
       textLink: '#0000FF',
       textLinkHover: '#000080',
-      
+
       // High contrast borders
       borderColor: '#000000',
       borderColorLight: '#666666',
       borderColorDark: '#000000',
-      
+
       // No shadows in high contrast
       shadowColor: 'transparent',
       shadowColorLight: 'transparent',
-      shadowColorDark: 'transparent'
+      shadowColorDark: 'transparent',
     };
   }
 
   private createPrintPalette(): ColorPalette {
     return {
+      // Core colors required by ColorPalette interface
+      background: '#FFFFFF',
+      surface: '#FFFFFF',
+      text: '#000000',
+      border: '#000000',
+      shadow: 'transparent',
+
       // Print-friendly colors
       primary: '#000000',
       primaryLight: '#333333',
       primaryDark: '#000000',
       primaryContrast: '#FFFFFF',
-      
+
       secondary: '#FFFFFF',
       secondaryLight: '#FFFFFF',
       secondaryDark: '#F0F0F0',
       secondaryContrast: '#000000',
-      
+
       // Grayscale status colors for print
       success: '#666666',
       successLight: '#999999',
       successDark: '#333333',
-      
+
       error: '#000000',
       errorLight: '#333333',
       errorDark: '#000000',
-      
+
       warning: '#999999',
       warningLight: '#CCCCCC',
       warningDark: '#666666',
-      
+
       info: '#666666',
       infoLight: '#999999',
       infoDark: '#333333',
-      
+
       // Grayscale
       gray100: '#FFFFFF',
       gray200: '#F5F5F5',
@@ -1118,7 +1145,7 @@ export class ThemeBuilder {
       gray700: '#333333',
       gray800: '#1A1A1A',
       gray900: '#000000',
-      
+
       // White backgrounds for print
       bgPrimary: '#FFFFFF',
       bgSecondary: '#FFFFFF',
@@ -1128,7 +1155,7 @@ export class ThemeBuilder {
       bgHover: '#FFFFFF',
       bgStripe: '#F5F5F5',
       bgNav: '#FFFFFF',
-      
+
       // Black text for print
       textPrimary: '#000000',
       textSecondary: '#333333',
@@ -1138,74 +1165,74 @@ export class ThemeBuilder {
       textNav: '#000000',
       textLink: '#000000',
       textLinkHover: '#000000',
-      
+
       // Black borders for print
       borderColor: '#000000',
       borderColorLight: '#CCCCCC',
       borderColorDark: '#000000',
-      
+
       // No shadows for print
       shadowColor: 'transparent',
       shadowColorLight: 'transparent',
-      shadowColorDark: 'transparent'
+      shadowColorDark: 'transparent',
     };
   }
 
   private createCustomPalette(config: ThemeConfig): ColorPalette {
     // Start with brand palette as base
     const base = this.createCSBrandPalette();
-    
+
     // Override with any custom colors
     if (config.customColors) {
       return { ...base, ...config.customColors };
     }
-    
+
     return base;
   }
 
-  private async generateCSS(config: ThemeConfig, palette: ColorPalette): Promise<string> {
+  private generateCSS(config: ThemeConfig, palette: ColorPalette): string {
     const css: string[] = [];
-    
+
     // CSS Reset
     css.push(this.generateReset());
-    
+
     // Root variables
     css.push(':root {');
-    
+
     // Color variables
     Object.entries(palette).forEach(([key, value]) => {
       const cssVarName = `--cs-${this.camelToKebab(key)}`;
       css.push(`  ${cssVarName}: ${value};`);
     });
-    
+
     // Add all other CSS variables
     this.cssVariables.forEach(variable => {
       if (!variable.name.includes('color') && !variable.name.includes('primary')) {
         css.push(`  ${variable.name}: ${variable.value};`);
       }
     });
-    
+
     // Font variables
     if (config.fonts) {
-      css.push(`  --cs-font-family-base: ${config.fonts.base || 'system-ui, -apple-system, sans-serif'};`);
-      css.push(`  --cs-font-family-heading: ${config.fonts.heading || 'var(--cs-font-family-base)'};`);
-      css.push(`  --cs-font-family-mono: ${config.fonts.mono || 'Consolas, Monaco, monospace'};`);
+      css.push(`  --cs-font-family-base: ${config.fonts.base ?? 'system-ui, -apple-system, sans-serif'};`);
+      css.push(`  --cs-font-family-heading: ${config.fonts.heading ?? 'var(--cs-font-family-base)'};`);
+      css.push(`  --cs-font-family-mono: ${config.fonts.mono ?? 'Consolas, Monaco, monospace'};`);
     }
-    
+
     css.push('}');
-    
+
     // Base styles
     css.push(this.generateBaseStyles(palette));
-    
+
     // Typography
     css.push(this.generateTypography(config.fonts));
-    
+
     // Layout
     css.push(this.generateLayout());
-    
+
     // Utilities
     css.push(this.generateUtilities());
-    
+
     return css.join('\n');
   }
 
@@ -1272,7 +1299,7 @@ ol, ul {
 `;
   }
 
-  private generateBaseStyles(palette: ColorPalette): string {
+  private generateBaseStyles(_palette: ColorPalette): string {
     return `
 /* Base Styles */
 .cs-report {
@@ -1366,7 +1393,7 @@ ol, ul {
 `;
   }
 
-  private generateTypography(fonts?: FontConfig): string {
+  private generateTypography(_fonts?: FontConfig): string {
     return `
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
@@ -1690,27 +1717,27 @@ ${this.generateSpacingUtilities()}
     const utilities: string[] = [];
     const sizes = [0, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5];
     const properties = {
-      'p': 'padding',
-      'm': 'margin',
-      'pt': 'padding-top',
-      'pr': 'padding-right',
-      'pb': 'padding-bottom',
-      'pl': 'padding-left',
-      'px': ['padding-left', 'padding-right'],
-      'py': ['padding-top', 'padding-bottom'],
-      'mt': 'margin-top',
-      'mr': 'margin-right',
-      'mb': 'margin-bottom',
-      'ml': 'margin-left',
-      'mx': ['margin-left', 'margin-right'],
-      'my': ['margin-top', 'margin-bottom']
+      p: 'padding',
+      m: 'margin',
+      pt: 'padding-top',
+      pr: 'padding-right',
+      pb: 'padding-bottom',
+      pl: 'padding-left',
+      px: ['padding-left', 'padding-right'],
+      py: ['padding-top', 'padding-bottom'],
+      mt: 'margin-top',
+      mr: 'margin-right',
+      mb: 'margin-bottom',
+      ml: 'margin-left',
+      mx: ['margin-left', 'margin-right'],
+      my: ['margin-top', 'margin-bottom'],
     };
 
     Object.entries(properties).forEach(([prefix, property]) => {
       sizes.forEach(size => {
         const className = `.cs-${prefix}-${size}`;
         const value = `var(--cs-spacing-${size})`;
-        
+
         if (Array.isArray(property)) {
           utilities.push(`${className} { ${property.map(p => `${p}: ${value}`).join('; ')}; }`);
         } else {
@@ -1722,26 +1749,35 @@ ${this.generateSpacingUtilities()}
     return utilities.join('\n');
   }
 
-  private generateComponentStyles(config: ThemeConfig, palette: ColorPalette): string {
+  private generateComponentStyles(_config: ThemeConfig, _palette: ColorPalette): string {
     const components: string[] = [];
-    
+
     this.componentStyles.forEach((component, name) => {
       components.push(`/* ${name.charAt(0).toUpperCase() + name.slice(1)} Component */`);
-      components.push(component.base);
-      
-      if (component.variants) {
-        Object.values(component.variants).forEach(variant => {
-          components.push(variant);
+      if (component?.['base']) {
+        const baseStyle = component['base'];
+        if (typeof baseStyle === 'string') {
+          components.push(baseStyle);
+        }
+      }
+
+      if (component?.['variants']) {
+        Object.values(component['variants']).forEach(variant => {
+          if (typeof variant === 'string') {
+            components.push(variant);
+          }
         });
       }
-      
-      if (component.sizes) {
-        Object.values(component.sizes).forEach(size => {
-          components.push(size);
+
+      if (component?.['sizes']) {
+        Object.values(component['sizes']).forEach(size => {
+          if (typeof size === 'string') {
+            components.push(size);
+          }
         });
       }
     });
-    
+
     return components.join('\n\n');
   }
 
@@ -1896,7 +1932,7 @@ ${this.generateSpacingUtilities()}
     if (animations?.custom) {
       return defaultAnimations + '\n' + animations.custom;
     }
-    
+
     return defaultAnimations;
   }
 
@@ -1906,12 +1942,12 @@ ${this.generateSpacingUtilities()}
       md: '768px',
       lg: '1024px',
       xl: '1280px',
-      '2xl': '1536px'
+      '2xl': '1536px',
     };
-    
-    const points = breakpoints || defaultBreakpoints;
+
+    const points = breakpoints ?? defaultBreakpoints;
     const styles: string[] = [];
-    
+
     Object.entries(points).forEach(([name, value]) => {
       styles.push(`
 /* ${name.toUpperCase()} Breakpoint - ${value} */
@@ -1960,11 +1996,11 @@ ${this.generateSpacingUtilities()}
 }
 `);
     });
-    
+
     return styles.join('\n');
   }
 
-  private generatePrintStyles(palette: ColorPalette): string {
+  private generatePrintStyles(_palette: ColorPalette): string {
     return `
 /* Print Styles */
 @media print {
@@ -2078,92 +2114,97 @@ ${this.generateSpacingUtilities()}
  */
 `;
 
-    return [
-      header,
-      sections.base,
-      sections.components,
-      sections.animations,
-      sections.responsive,
-      sections.print
-    ].join('\n\n');
+    return [header, sections.base, sections.components, sections.animations, sections.responsive, sections.print].join(
+      '\n\n',
+    );
   }
 
   private minifyCSS(css: string): string {
     // Remove comments
     css = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    
+
     // Remove unnecessary whitespace
     css = css.replace(/\s+/g, ' ');
-    
+
     // Remove whitespace around selectors
     css = css.replace(/\s*([{}:;,])\s*/g, '$1');
-    
+
     // Remove trailing semicolons
     css = css.replace(/;}/g, '}');
-    
+
     // Remove quotes from font names
-    css = css.replace(/"([^"]+)"/g, (match, p1) => {
+    css = css.replace(/"([^"]+)"/g, (match: string, p1: string): string => {
       if (p1.includes(' ')) return match;
       return p1;
     });
-    
+
     // Remove units from zero values
     css = css.replace(/:\s*0(px|em|rem|%)/g, ':0');
-    
+
     // Shorten hex colors
     css = css.replace(/#([0-9a-fA-F])\1([0-9a-fA-F])\2([0-9a-fA-F])\3/g, '#$1$2$3');
-    
+
     return css.trim();
   }
 
   private async saveTheme(theme: ThemeOutput): Promise<void> {
     const themePath = path.join(this.themePath, theme.id);
-    await FileUtils.ensureDirectory(themePath);
-    
+    await FileUtils.ensureDir(themePath);
+
     // Save CSS file
     const cssPath = path.join(themePath, `${theme.id}.css`);
     await fs.promises.writeFile(cssPath, theme.css, 'utf-8');
-    
+
     // Save minified version
     const minPath = path.join(themePath, `${theme.id}.min.css`);
     const minified = this.minifyCSS(theme.css);
     await fs.promises.writeFile(minPath, minified, 'utf-8');
-    
+
     // Save theme metadata
     const metaPath = path.join(themePath, 'theme.json');
-    await fs.promises.writeFile(metaPath, JSON.stringify({
-      id: theme.id,
-      name: theme.name,
-      colorPalette: theme.colorPalette,
-      fonts: theme.fonts,
-      metadata: theme.metadata,
-      files: {
-        css: `${theme.id}.css`,
-        minified: `${theme.id}.min.css`
-      }
-    }, null, 2), 'utf-8');
-    
+    await fs.promises.writeFile(
+      metaPath,
+      JSON.stringify(
+        {
+          id: theme.id,
+          name: theme.name,
+          colorPalette: theme.colorPalette,
+          fonts: theme.fonts,
+          metadata: theme.metadata,
+          files: {
+            css: `${theme.id}.css`,
+            minified: `${theme.id}.min.css`,
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
     // Generate color palette preview
-    const previewPath = path.join(themePath, 'palette.html');
-    const preview = this.generatePalettePreview(theme.colorPalette);
-    await fs.promises.writeFile(previewPath, preview, 'utf-8');
-    
-    ActionLogger.info('Theme saved', {
+    if (theme.colorPalette) {
+      const previewPath = path.join(themePath, 'palette.html');
+      const preview = this.generatePalettePreview(theme.colorPalette);
+      await fs.promises.writeFile(previewPath, preview, 'utf-8');
+    }
+
+    Logger.getInstance('ThemeBuilder').info('Theme saved', {
       themeId: theme.id,
       path: themePath,
       cssSize: `${(theme.css.length / 1024).toFixed(2)} KB`,
-      minSize: `${(minified.length / 1024).toFixed(2)} KB`
+      minSize: `${(minified.length / 1024).toFixed(2)} KB`,
     });
   }
 
   private generatePalettePreview(palette: ColorPalette): string {
     const colorGroups = {
-      'Primary': ['primary', 'primaryLight', 'primaryDark'],
-      'Secondary': ['secondary', 'secondaryLight', 'secondaryDark'],
-      'Status': ['success', 'error', 'warning', 'info'],
-      'Grays': ['gray100', 'gray200', 'gray300', 'gray400', 'gray500', 'gray600', 'gray700', 'gray800', 'gray900'],
-      'Backgrounds': ['bgPrimary', 'bgSecondary', 'bgTertiary', 'bgCard', 'bgMuted'],
-      'Text': ['textPrimary', 'textSecondary', 'textMuted', 'textHeading', 'textBody']
+      Primary: ['primary', 'primaryLight', 'primaryDark'],
+      Secondary: ['secondary', 'secondaryLight', 'secondaryDark'],
+      Status: ['success', 'error', 'warning', 'info'],
+      Grays: ['gray100', 'gray200', 'gray300', 'gray400', 'gray500', 'gray600', 'gray700', 'gray800', 'gray900'],
+      Backgrounds: ['bgPrimary', 'bgSecondary', 'bgTertiary', 'bgCard', 'bgMuted'],
+      Text: ['textPrimary', 'textSecondary', 'textMuted', 'textHeading', 'textBody'],
     };
 
     return `
@@ -2239,14 +2280,19 @@ ${this.generateSpacingUtilities()}
 <body>
   <div class="container">
     <h1>Theme Color Palette</h1>
-    ${Object.entries(colorGroups).map(([groupName, colors]) => `
+    ${Object.entries(colorGroups)
+      .map(
+        ([groupName, colors]) => `
       <div class="color-group">
         <h2>${groupName}</h2>
         <div class="color-swatches">
-          ${colors.filter(name => palette[name as keyof ColorPalette]).map(name => {
-            const value = palette[name as keyof ColorPalette];
-            const isLight = this.isLightColor(value);
-            return `
+          ${colors
+            .filter(name => palette[name as keyof ColorPalette])
+            .map(name => {
+              const value = palette[name as keyof ColorPalette];
+              if (!value || typeof value !== 'string') return '';
+              const isLight = this.isLightColor(value);
+              return `
               <div class="color-swatch">
                 <div class="color-preview" style="background-color: ${value}; color: ${isLight ? '#000' : '#fff'}">
                   ${isLight ? 'Aa' : 'Aa'}
@@ -2257,10 +2303,13 @@ ${this.generateSpacingUtilities()}
                 </div>
               </div>
             `;
-          }).join('')}
+            })
+            .join('')}
         </div>
       </div>
-    `).join('')}
+    `,
+      )
+      .join('')}
   </div>
 </body>
 </html>
@@ -2273,10 +2322,10 @@ ${this.generateSpacingUtilities()}
     const r = parseInt(hex.substr(0, 2), 16);
     const g = parseInt(hex.substr(2, 2), 16);
     const b = parseInt(hex.substr(4, 2), 16);
-    
+
     // Calculate luminance
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    
+
     return luminance > 0.5;
   }
 
@@ -2293,18 +2342,13 @@ ${this.generateSpacingUtilities()}
 
   private generateThemeId(name: string): string {
     const timestamp = Date.now();
-    const hash = crypto.createHash('md5')
-      .update(`${name}-${timestamp}`)
-      .digest('hex')
-      .substring(0, 8);
-    
+    const hash = crypto.createHash('md5').update(`${name}-${timestamp}`).digest('hex').substring(0, 8);
+
     return `theme-${this.camelToKebab(name)}-${hash}`;
   }
 
   private generateChecksum(content: string): string {
-    return crypto.createHash('sha256')
-      .update(content)
-      .digest('hex');
+    return crypto.createHash('sha256').update(content).digest('hex');
   }
 
   async getTheme(themeId: string): Promise<ThemeOutput | null> {
@@ -2312,54 +2356,75 @@ ${this.generateSpacingUtilities()}
     if (this.generatedThemes.has(themeId)) {
       return this.generatedThemes.get(themeId)!;
     }
-    
+
     // Try to load from disk
     const themePath = path.join(this.themePath, themeId);
     const metaPath = path.join(themePath, 'theme.json');
-    
+
     if (await FileUtils.exists(metaPath)) {
-      const metadata = JSON.parse(await fs.promises.readFile(metaPath, 'utf-8'));
+      const metadata = JSON.parse(await fs.promises.readFile(metaPath, 'utf-8')) as {
+        id: string;
+        name: string;
+        colorPalette: ColorPalette;
+        fonts?: FontConfig;
+        icons?: IconSet;
+        metadata: {
+          created: string;
+          version: string;
+          checksum: string;
+        };
+        files: {
+          css: string;
+          minified: string;
+        };
+      };
       const cssPath = path.join(themePath, metadata.files.css);
       const css = await fs.promises.readFile(cssPath, 'utf-8');
-      
+
       const theme: ThemeOutput = {
         id: metadata.id,
         name: metadata.name,
         css,
         colorPalette: metadata.colorPalette,
-        fonts: metadata.fonts,
-        icons: metadata.icons,
-        metadata: metadata.metadata
+        ...(metadata.fonts && { fonts: metadata.fonts }),
+        ...(metadata.icons && { icons: metadata.icons }),
+        metadata: metadata.metadata,
       };
-      
+
       // Cache it
       this.generatedThemes.set(themeId, theme);
-      
+
       return theme;
     }
-    
+
     return null;
   }
 
   async listThemes(): Promise<Array<{ id: string; name: string; created: string }>> {
     const themes: Array<{ id: string; name: string; created: string }> = [];
-    
+
     if (await FileUtils.exists(this.themePath)) {
       const dirs = await fs.promises.readdir(this.themePath);
-      
+
       for (const dir of dirs) {
         const metaPath = path.join(this.themePath, dir, 'theme.json');
         if (await FileUtils.exists(metaPath)) {
-          const metadata = JSON.parse(await fs.promises.readFile(metaPath, 'utf-8'));
+          const metadata = JSON.parse(await fs.promises.readFile(metaPath, 'utf-8')) as {
+            id: string;
+            name: string;
+            metadata: {
+              created: string;
+            };
+          };
           themes.push({
             id: metadata.id,
             name: metadata.name,
-            created: metadata.metadata.created
+            created: metadata.metadata.created,
           });
         }
       }
     }
-    
+
     return themes;
   }
 }

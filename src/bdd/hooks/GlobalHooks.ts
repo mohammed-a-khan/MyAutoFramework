@@ -709,8 +709,8 @@ export class GlobalHooks {
   private async generateFinalReports(): Promise<void> {
     // Finalize collectors
     const executionId = 'exec-' + Date.now();
-    await this.performanceCollector.finalize(executionId);
-    await this.metricsCollector.finalize(executionId);
+    await this.performanceCollector.finalize();
+    await this.metricsCollector.finalize();
     await this.networkCollector.finalize(executionId);
 
     // Generate final report

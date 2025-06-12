@@ -1,19 +1,15 @@
 // src/reporting/collectors/VideoCollector.ts
 
-import { Page, BrowserContext } from 'playwright';
+import { BrowserContext } from 'playwright';
 import { Logger } from '../../core/utils/Logger';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
-import { FileUtils } from '../../core/utils/FileUtils';
 import {
-  VideoEvidence,
-  VideoOptions,
-  VideoMetadata,
-  CollectionOptions
+  CollectorOptions
 } from '../types/reporting.types';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as ffmpeg from 'fluent-ffmpeg';
+const ffmpeg = require('fluent-ffmpeg');
 import * as ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import * as ffprobeInstaller from '@ffprobe-installer/ffprobe';
 
@@ -21,12 +17,53 @@ import * as ffprobeInstaller from '@ffprobe-installer/ffprobe';
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
+// Define local types for VideoCollector
+interface VideoEvidence {
+  id: string;
+  type: string;
+  timestamp: Date;
+  scenarioId: string;
+  name: string;
+  description: string;
+  path: string;
+  size: number;
+  duration: number;
+  metadata: VideoMetadata;
+  thumbnail: string | null;
+  tags: string[];
+  format: string;
+}
+
+interface VideoOptions {
+  size?: { width: number; height: number };
+  quality?: string;
+  format?: string;
+  compress?: boolean;
+  description?: string;
+  tags?: string[];
+}
+
+interface VideoMetadata {
+  duration: number;
+  dimensions: { width: number; height: number };
+  fps: number;
+  codec: string;
+  bitrate: number;
+  format?: string;
+  size?: number;
+  hasAudio?: boolean;
+  startTime?: Date;
+  endTime?: Date;
+  compressed?: boolean;
+  originalSize?: number;
+}
+
 /**
  * Collects and manages video recordings of test execution
  */
 export class VideoCollector {
   private static instance: VideoCollector;
-  private readonly logger = new Logger(VideoCollector.name);
+  private readonly logger = Logger.getInstance(VideoCollector.name);
   
   private readonly videos: Map<string, VideoEvidence[]> = new Map();
   private readonly activeRecordings: Map<string, {
@@ -69,13 +106,14 @@ export class VideoCollector {
   /**
    * Initialize collector for execution
    */
-  async initialize(executionId: string, options: CollectionOptions): Promise<void> {
+  async initialize(executionId: string, _options?: CollectorOptions): Promise<void> {
     this.executionId = executionId;
     this.videoCount = 0;
     this.videos.clear();
     this.activeRecordings.clear();
     
     // Create video directory
+    // Note: options parameter is reserved for future extensions
     if (!fs.existsSync(this.videoPath)) {
       fs.mkdirSync(this.videoPath, { recursive: true });
     }
@@ -101,11 +139,17 @@ export class VideoCollector {
         fs.mkdirSync(videoDir, { recursive: true });
       }
       
-      // Configure video recording
-      const videoOptions = {
+      // Configure video recording - Playwright configures video at context creation
+      // These options are stored for later processing
+      const videoConfig = {
         dir: videoDir,
         size: options.size || this.videoSize
       };
+      
+      // Ensure the video directory exists for this scenario
+      if (!fs.existsSync(videoConfig.dir)) {
+        fs.mkdirSync(videoConfig.dir, { recursive: true });
+      }
       
       // Start recording on all pages in context
       const pages = context.pages();
@@ -127,7 +171,7 @@ export class VideoCollector {
       ActionLogger.logVideoRecording('start', scenarioId);
       
     } catch (error) {
-      this.logger.error(`Failed to start video recording for ${scenarioId}`, error);
+      this.logger.error(`Failed to start video recording for ${scenarioId}`, error as Error);
     }
   }
 
@@ -154,7 +198,12 @@ export class VideoCollector {
         return null;
       }
       
-      const video = pages[0].video();
+      const page = pages[0];
+      if (!page) {
+        return null;
+      }
+      
+      const video = page.video();
       if (!video) {
         return null;
       }
@@ -226,7 +275,7 @@ export class VideoCollector {
       return evidence;
       
     } catch (error) {
-      this.logger.error(`Failed to stop video recording for ${scenarioId}`, error);
+      this.logger.error(`Failed to stop video recording for ${scenarioId}`, error as Error);
       this.activeRecordings.delete(scenarioId);
       return null;
     }
@@ -243,11 +292,25 @@ export class VideoCollector {
     if (this.activeRecordings.has(scenarioId)) {
       const video = await this.stopRecording(scenarioId);
       if (video) {
+        // Enhance video evidence with scenario name
+        video.name = scenarioName || video.name;
+        video.description = `Video recording of scenario: ${scenarioName}`;
         return [video];
       }
     }
     
-    return this.videos.get(scenarioId) || [];
+    // Enhance existing videos with scenario name if available
+    const existingVideos = this.videos.get(scenarioId) || [];
+    if (scenarioName && existingVideos.length > 0) {
+      existingVideos.forEach(video => {
+        if (!video.name || video.name === `${scenarioId}_recording`) {
+          video.name = scenarioName;
+          video.description = `Video recording of scenario: ${scenarioName}`;
+        }
+      });
+    }
+    
+    return existingVideos;
   }
 
   /**
@@ -281,11 +344,11 @@ export class VideoCollector {
       }
       
       command
-        .on('start', (cmdline) => {
-          this.logger.debug('Starting video compression:', cmdline);
+        .on('start', (cmdline: string) => {
+          this.logger.debug('Starting video compression:', { cmdline });
         })
-        .on('progress', (progress) => {
-          this.logger.debug(`Compression progress: ${progress.percent}%`);
+        .on('progress', (progress: any) => {
+          this.logger.debug('Compression progress', { percent: progress.percent });
         })
         .on('end', async () => {
           try {
@@ -295,7 +358,7 @@ export class VideoCollector {
             resolve(null);
           }
         })
-        .on('error', (err) => {
+        .on('error', (err: Error) => {
           this.logger.error('Video compression failed:', err);
           resolve(null);
         })
@@ -308,7 +371,7 @@ export class VideoCollector {
    */
   private async extractVideoMetadata(videoPath: string): Promise<VideoMetadata> {
     return new Promise((resolve) => {
-      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      ffmpeg.ffprobe(videoPath, (err: Error | null, metadata: any) => {
         if (err) {
           this.logger.error('Failed to extract video metadata:', err);
           resolve({
@@ -321,8 +384,8 @@ export class VideoCollector {
           return;
         }
         
-        const videoStream = metadata.streams.find(s => s.codec_type === 'video');
-        const audioStream = metadata.streams.find(s => s.codec_type === 'audio');
+        const videoStream = metadata.streams.find((s: any) => s.codec_type === 'video');
+        const audioStream = metadata.streams.find((s: any) => s.codec_type === 'audio');
         
         resolve({
           duration: Math.floor(metadata.format.duration || 0),
@@ -367,8 +430,8 @@ export class VideoCollector {
             resolve(null);
           }
         })
-        .on('error', (err) => {
-          this.logger.debug('Thumbnail generation failed:', err);
+        .on('error', (err: Error) => {
+          this.logger.debug('Thumbnail generation failed:', { error: err.message });
           resolve(null);
         });
     });
@@ -390,8 +453,8 @@ export class VideoCollector {
       });
       
       command
-        .on('start', (cmdline) => {
-          this.logger.debug('Starting video merge:', cmdline);
+        .on('start', (cmdline: string) => {
+          this.logger.debug('Starting video merge:', { cmdline });
         })
         .on('end', async () => {
           try {
@@ -420,7 +483,7 @@ export class VideoCollector {
             resolve(null);
           }
         })
-        .on('error', (err) => {
+        .on('error', (err: Error) => {
           this.logger.error('Video merge failed:', err);
           resolve(null);
         })
@@ -458,19 +521,9 @@ export class VideoCollector {
   ): Promise<boolean> {
     return new Promise((resolve) => {
       ffmpeg(videoPath)
-        .videoFilters({
-          filter: 'drawtext',
-          options: {
-            text: watermarkText,
-            fontsize: 20,
-            fontcolor: 'white',
-            x: 10,
-            y: 10,
-            shadowcolor: 'black',
-            shadowx: 2,
-            shadowy: 2
-          }
-        })
+        .videoFilters([
+          `drawtext=text='${watermarkText}':fontsize=20:fontcolor=white:x=10:y=10:shadowcolor=black:shadowx=2:shadowy=2`
+        ])
         .on('end', () => resolve(true))
         .on('error', () => resolve(false))
         .save(outputPath);
@@ -576,7 +629,7 @@ export class VideoCollector {
         }
       }
     } catch (error) {
-      this.logger.error('Failed to clean up old videos', error);
+      this.logger.error('Failed to clean up old videos', error as Error);
     }
   }
 
@@ -585,7 +638,8 @@ export class VideoCollector {
    */
   async finalize(executionId: string): Promise<void> {
     // Stop any remaining recordings
-    for (const [scenarioId] of this.activeRecordings) {
+    const activeScenarios = Array.from(this.activeRecordings.keys());
+    for (const scenarioId of activeScenarios) {
       await this.stopRecording(scenarioId);
     }
     

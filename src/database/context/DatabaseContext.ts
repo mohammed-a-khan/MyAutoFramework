@@ -274,6 +274,151 @@ export class DatabaseContext {
     }
 
     /**
+     * Execute query with execution plan
+     */
+    async executeWithPlan(query: string, params?: any[]): Promise<QueryResult> {
+        const adapter = this.getActiveAdapter();
+        const startTime = Date.now();
+        
+        try {
+            // First, get the execution plan
+            let executionPlan: string | undefined;
+            let planQuery: string;
+            
+            // Different databases have different EXPLAIN syntax
+            switch (this.activeConnectionType.toLowerCase()) {
+                case 'mysql':
+                    planQuery = `EXPLAIN ${query}`;
+                    break;
+                case 'postgresql':
+                    planQuery = `EXPLAIN ANALYZE ${query}`;
+                    break;
+                case 'sqlite':
+                    planQuery = `EXPLAIN QUERY PLAN ${query}`;
+                    break;
+                case 'mssql':
+                case 'sqlserver':
+                    // SQL Server uses SET SHOWPLAN_TEXT
+                    await adapter.query(this.activeConnection!, 'SET SHOWPLAN_TEXT ON');
+                    planQuery = query;
+                    break;
+                case 'oracle':
+                    planQuery = `EXPLAIN PLAN FOR ${query}`;
+                    break;
+                default:
+                    planQuery = `EXPLAIN ${query}`;
+            }
+            
+            try {
+                const planResult = await adapter.query(this.activeConnection!, planQuery, params);
+                
+                if (this.activeConnectionType.toLowerCase() === 'oracle') {
+                    // Oracle stores plan in PLAN_TABLE, need to query it
+                    const oraclePlan = await adapter.query(
+                        this.activeConnection!,
+                        'SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY())'
+                    );
+                    executionPlan = this.formatExecutionPlan(oraclePlan);
+                } else if (this.activeConnectionType.toLowerCase() === 'mssql' || 
+                           this.activeConnectionType.toLowerCase() === 'sqlserver') {
+                    executionPlan = this.formatExecutionPlan(planResult);
+                    // Turn off SHOWPLAN_TEXT
+                    await adapter.query(this.activeConnection!, 'SET SHOWPLAN_TEXT OFF');
+                } else {
+                    executionPlan = this.formatExecutionPlan(planResult);
+                }
+            } catch (planError) {
+                // If execution plan fails, log it but continue with query
+                const logger = Logger.getInstance();
+                logger.warn(`Failed to get execution plan: ${(planError as Error).message}`);
+            }
+            
+            // Execute the actual query
+            const result = await adapter.query(this.activeConnection!, query, params);
+            
+            // Store in history with execution plan
+            const historyEntry: QueryHistoryEntry = {
+                query,
+                result,
+                timestamp: new Date(),
+                duration: Date.now() - startTime,
+                connectionName: this.activeConnectionName,
+                success: true,
+                executionPlan,
+                metadata: {
+                    rowsExamined: result.rowCount,
+                    indexUsed: executionPlan?.includes('INDEX') || executionPlan?.includes('index')
+                }
+            };
+            if (params) {
+                historyEntry.params = params;
+            }
+            this.addToHistory(historyEntry);
+            
+            return result;
+            
+        } catch (error) {
+            // Store failed query in history
+            const historyEntry: QueryHistoryEntry = {
+                query,
+                result: null,
+                timestamp: new Date(),
+                duration: Date.now() - startTime,
+                connectionName: this.activeConnectionName,
+                success: false,
+                error: (error as Error).message
+            };
+            if (params) {
+                historyEntry.params = params;
+            }
+            this.addToHistory(historyEntry);
+            
+            throw error;
+        }
+    }
+
+    /**
+     * Get last query execution plan
+     */
+    getLastExecutionPlan(): string | undefined {
+        const history = this.getQueryHistory();
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].executionPlan) {
+                return history[i].executionPlan;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Format execution plan from query result
+     */
+    private formatExecutionPlan(result: QueryResult): string {
+        if (!result || !result.rows || result.rows.length === 0) {
+            return 'No execution plan available';
+        }
+        
+        // Different databases return execution plans in different formats
+        let plan = '';
+        
+        if (Array.isArray(result.rows)) {
+            result.rows.forEach((row, index) => {
+                if (typeof row === 'object') {
+                    // Handle different column names used by different databases
+                    const planText = row['QUERY PLAN'] || row['QueryPlan'] || row['Plan'] || 
+                                   row['EXPLAIN'] || row['Extra'] || row['StmtText'] ||
+                                   row['PLAN_TABLE_OUTPUT'] || JSON.stringify(row, null, 2);
+                    plan += `${index > 0 ? '\n' : ''}${planText}`;
+                } else {
+                    plan += `${index > 0 ? '\n' : ''}${row}`;
+                }
+            });
+        }
+        
+        return plan || 'Execution plan format not recognized';
+    }
+
+    /**
      * Get query history
      */
     getQueryHistory(filter?: QueryHistoryFilter): QueryHistoryEntry[] {
@@ -437,6 +582,13 @@ interface QueryHistoryEntry {
     connectionName: string;
     success: boolean;
     error?: string;
+    executionPlan?: string;
+    metadata?: {
+        rowsExamined?: number;
+        indexUsed?: boolean;
+        optimizations?: string[];
+        [key: string]: any;
+    };
 }
 
 interface QueryHistoryFilter {

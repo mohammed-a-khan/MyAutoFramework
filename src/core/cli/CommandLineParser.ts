@@ -2,7 +2,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { ExecutionOptions, CLIArgument, CLIFlag, CLIOption, ParsedArguments, ValidationError, ConfigFile } from './ExecutionOptions';
+import { ExecutionOptions, CLIArgument, CLIFlag, ParsedArguments, ValidationError } from './ExecutionOptions';
 
 /**
  * Production-ready command line parser with full argument validation,
@@ -405,8 +405,10 @@ export class CommandLineParser {
         if (!shardRegex.test(value)) {
           throw new Error('Shard must be in format current/total (e.g., 1/3)');
         }
-        const [current, total] = value.split('/').map(Number);
-        if (current < 1 || current > total) {
+        const parts = value.split('/').map(Number);
+        const current = parts[0];
+        const total = parts[1];
+        if (!current || !total || current < 1 || current > total) {
           throw new Error('Current shard must be between 1 and total');
         }
         return true;
@@ -552,13 +554,13 @@ export class CommandLineParser {
       this.parsedArgs = this.parseArguments(args);
 
       // Load config file if specified
-      if (this.parsedArgs.config) {
-        this.loadConfigFile(this.parsedArgs.config as string);
+      if (this.parsedArgs['config']) {
+        this.loadConfigFile(this.parsedArgs['config'] as string);
       }
 
       // Apply profile if specified
-      if (this.parsedArgs.profile) {
-        this.applyProfile(this.parsedArgs.profile as string);
+      if (this.parsedArgs['profile']) {
+        this.applyProfile(this.parsedArgs['profile'] as string);
       }
 
       // Validate all arguments
@@ -585,6 +587,11 @@ export class CommandLineParser {
 
     while (i < args.length) {
       const arg = args[i];
+      
+      if (!arg) {
+        i++;
+        continue;
+      }
 
       if (arg.startsWith('--')) {
         // Long option: --option or --option=value
@@ -602,9 +609,12 @@ export class CommandLineParser {
           
           if (argDef && argDef.type === 'boolean') {
             this.processArgument(name, 'true', parsed);
-          } else if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+          } else if (i + 1 < args.length && args[i + 1] && !args[i + 1]!.startsWith('-')) {
             i++;
-            this.processArgument(name, args[i], parsed);
+            const nextArg = args[i];
+            if (nextArg) {
+              this.processArgument(name, nextArg, parsed);
+            }
           } else if (this.isFlag(name)) {
             parsed[name] = true;
           } else {
@@ -617,7 +627,7 @@ export class CommandLineParser {
         
         for (let j = 0; j < options.length; j++) {
           const shortOpt = options[j];
-          const fullName = this.resolveAlias(shortOpt);
+          const fullName = this.resolveAlias(shortOpt || '');
           
           if (!fullName) {
             throw new Error(`Unknown option: -${shortOpt}`);
@@ -627,10 +637,13 @@ export class CommandLineParser {
           
           if (argDef && argDef.type === 'boolean') {
             parsed[fullName] = true;
-          } else if (j === options.length - 1 && i + 1 < args.length && !args[i + 1].startsWith('-')) {
+          } else if (j === options.length - 1 && i + 1 < args.length && args[i + 1] && !args[i + 1]!.startsWith('-')) {
             // Last option in group can take value
             i++;
-            this.processArgument(fullName, args[i], parsed);
+            const nextArg = args[i];
+            if (nextArg) {
+              this.processArgument(fullName, nextArg, parsed);
+            }
           } else if (this.FLAGS.has(fullName)) {
             parsed[fullName] = true;
           } else {
@@ -639,10 +652,10 @@ export class CommandLineParser {
         }
       } else {
         // Positional argument (treat as feature file)
-        if (!parsed.feature) {
-          parsed.feature = [];
+        if (!parsed['feature']) {
+          parsed['feature'] = [];
         }
-        (parsed.feature as string[]).push(arg);
+        (parsed['feature'] as string[]).push(arg);
       }
       
       i++;
@@ -801,7 +814,7 @@ export class CommandLineParser {
       }
 
     } catch (error) {
-      throw new Error(`Failed to load config file: ${error.message}`);
+      throw new Error(`Failed to load config file: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -849,7 +862,8 @@ export class CommandLineParser {
         if (argDef.choices && value) {
           const values = Array.isArray(value) ? value : [value];
           for (const v of values) {
-            if (!argDef.choices.includes(v)) {
+            const choicesArray = argDef.choices as Array<string | number>;
+            if (!choicesArray.includes(v)) {
               this.validationErrors.push({
                 argument: name,
                 message: `Invalid value '${v}' for option '${name}'. Must be one of: ${argDef.choices.join(', ')}`
@@ -868,7 +882,7 @@ export class CommandLineParser {
           } catch (error) {
             this.validationErrors.push({
               argument: name,
-              message: error.message
+              message: error instanceof Error ? error.message : String(error)
             });
           }
         }
@@ -900,7 +914,7 @@ export class CommandLineParser {
    */
   private static validateConflicts(): void {
     // Check debug vs quiet
-    if (this.parsedArgs!.debug && this.parsedArgs!.quiet) {
+    if (this.parsedArgs!['debug'] && this.parsedArgs!['quiet']) {
       this.validationErrors.push({
         argument: 'debug/quiet',
         message: 'Cannot use both --debug and --quiet'
@@ -921,7 +935,7 @@ export class CommandLineParser {
     }
 
     // Check parallel conflicts
-    if (!this.parsedArgs!.parallel && this.parsedArgs!.workers) {
+    if (!this.parsedArgs!['parallel'] && this.parsedArgs!['workers']) {
       this.validationErrors.push({
         argument: 'workers',
         message: 'Option --workers requires --parallel'
@@ -929,7 +943,7 @@ export class CommandLineParser {
     }
 
     // Check shard with parallel
-    if (this.parsedArgs!.shard && this.parsedArgs!.parallel) {
+    if (this.parsedArgs!['shard'] && this.parsedArgs!['parallel']) {
       this.validationErrors.push({
         argument: 'shard',
         message: 'Cannot use --shard with --parallel (sharding is for distributed execution)'
@@ -987,62 +1001,45 @@ export class CommandLineParser {
    * Build ExecutionOptions from parsed arguments
    */
   private static buildExecutionOptions(): ExecutionOptions {
-    const options: ExecutionOptions = {
+    const options: any = {
       // Environment
-      environment: this.parsedArgs!.env as string,
+      environment: this.parsedArgs!['env'] as string || 'dev',
       
       // Test selection
-      tags: this.parsedArgs!.tags as string,
-      features: this.parsedArgs!.feature as string[],
-      scenarios: this.parsedArgs!.scenario as string[],
-      grep: this.parsedArgs!.grep as string,
-      grepInvert: this.parsedArgs!['grep-invert'] as boolean,
+      grepInvert: this.parsedArgs!['grep-invert'] as boolean || false,
       
       // Execution settings
-      parallel: this.parsedArgs!.parallel as boolean,
-      workers: this.parsedArgs!.workers as number,
-      browser: this.parsedArgs!.browser as string,
-      headless: this.parsedArgs!.headless as boolean,
-      timeout: this.parsedArgs!.timeout as number,
-      retry: this.parsedArgs!.retry as number,
-      dryRun: this.parsedArgs!['dry-run'] as boolean,
-      bail: this.parsedArgs!.bail as boolean,
-      maxFailures: this.parsedArgs!['max-failures'] as number,
-      shard: this.parsedArgs!.shard as string,
+      parallel: this.parsedArgs!['parallel'] as boolean || false,
+      workers: this.parsedArgs!['workers'] as number || 1,
+      browser: (this.parsedArgs!['browser'] as string) as any || 'chromium',
+      headless: this.parsedArgs!['headless'] as boolean || false,
+      timeout: this.parsedArgs!['timeout'] as number || 30000,
+      retry: this.parsedArgs!['retry'] as number || 0,
+      dryRun: this.parsedArgs!['dry-run'] as boolean || false,
+      bail: this.parsedArgs!['bail'] as boolean || false,
+      maxFailures: this.parsedArgs!['max-failures'] as number || 0,
+      shard: this.parseShardConfig(this.parsedArgs!['shard'] as string),
       
       // Debug settings
-      debug: this.parsedArgs!.debug as boolean,
-      verbose: this.parsedArgs!.verbose as boolean,
-      quiet: this.parsedArgs!.quiet as boolean,
-      noColors: this.parsedArgs!['no-colors'] as boolean,
+      debug: this.parsedArgs!['debug'] as boolean || false,
+      verbose: this.parsedArgs!['verbose'] as boolean || false,
+      quiet: this.parsedArgs!['quiet'] as boolean || false,
+      noColors: this.parsedArgs!['no-colors'] as boolean || false,
       
       // Evidence collection
-      video: this.parsedArgs!.video as boolean,
-      trace: this.parsedArgs!.trace as boolean,
-      screenshot: this.parsedArgs!.screenshot as 'always' | 'on-failure' | 'never',
-      updateSnapshots: this.parsedArgs!['update-snapshots'] as boolean,
+      video: this.parsedArgs!['video'] as boolean || false,
+      trace: this.parsedArgs!['trace'] as boolean || false,
+      screenshot: (this.parsedArgs!['screenshot'] as 'always' | 'on-failure' | 'never') || 'on-failure',
+      updateSnapshots: this.parsedArgs!['update-snapshots'] as boolean || false,
       
       // Reporting
-      reportName: this.parsedArgs!['report-name'] as string,
-      reportPath: this.parsedArgs!['report-path'] as string,
+      reportName: this.parsedArgs!['report-name'] as string || 'Test Execution Report',
+      reportPath: this.parsedArgs!['report-path'] as string || './reports',
       reportFormats: this.parseReportFormats(this.parsedArgs!['report-format']),
-      outputFormats: this.parseOutputFormats(this.parsedArgs!.output),
-      
-      // Configuration
-      configFile: this.parsedArgs!.config as string,
-      profile: this.parsedArgs!.profile as string,
-      testDataPath: this.parsedArgs!['test-data'] as string,
-      
-      // Overrides
-      apiBaseUrl: this.parsedArgs!['api-base-url'] as string,
-      dbConnection: this.parsedArgs!['db-connection'] as string,
-      
-      // Proxy settings
-      proxy: this.parsedArgs!.proxy as string,
-      proxyAuth: this.parseProxyAuth(this.parsedArgs!['proxy-auth'] as string),
+      outputFormats: this.parseOutputFormats(this.parsedArgs!['output']),
       
       // CI settings
-      ci: this.parsedArgs!.ci as boolean,
+      ci: this.parsedArgs!['ci'] as boolean || false,
       
       // Metadata
       executionId: this.generateExecutionId(),
@@ -1050,33 +1047,79 @@ export class CommandLineParser {
       commandLine: process.argv.join(' ')
     };
 
-    return options;
+    // Add optional properties conditionally
+    if (this.parsedArgs!['tags']) {
+      options.tags = this.parsedArgs!['tags'] as string;
+    }
+    if (this.parsedArgs!['feature']) {
+      options.features = this.parsedArgs!['feature'] as string[];
+    }
+    if (this.parsedArgs!['scenario']) {
+      options.scenarios = this.parsedArgs!['scenario'] as string[];
+    }
+    if (this.parsedArgs!['grep']) {
+      options.grep = this.parsedArgs!['grep'] as string;
+    }
+    if (this.parsedArgs!['config']) {
+      options.configFile = this.parsedArgs!['config'] as string;
+    }
+    if (this.parsedArgs!['profile']) {
+      options.profile = this.parsedArgs!['profile'] as string;
+    }
+    if (this.parsedArgs!['test-data']) {
+      options.testDataPath = this.parsedArgs!['test-data'] as string;
+    }
+    if (this.parsedArgs!['api-base-url']) {
+      options.apiBaseUrl = this.parsedArgs!['api-base-url'] as string;
+    }
+    if (this.parsedArgs!['db-connection']) {
+      options.dbConnection = this.parsedArgs!['db-connection'] as string;
+    }
+    if (this.parsedArgs!['proxy']) {
+      options.proxy = this.parsedArgs!['proxy'] as string;
+    }
+    const proxyAuth = this.parseProxyAuth(this.parsedArgs!['proxy-auth'] as string);
+    if (proxyAuth) {
+      options.proxyAuth = proxyAuth;
+    }
+
+    return options as ExecutionOptions;
   }
 
   /**
    * Parse report formats
    */
-  private static parseReportFormats(value: any): string[] {
+  private static parseReportFormats(value: any): any[] {
     if (!value) return ['html'];
     
     if (Array.isArray(value)) {
-      return value.flatMap(v => v.split(',').map(f => f.trim()));
+      return value.flatMap((v: string) => v.split(',').map((f: string) => f.trim()));
     }
     
-    return value.split(',').map(f => f.trim());
+    return String(value).split(',').map((f: string) => f.trim());
   }
 
   /**
    * Parse output formats
    */
-  private static parseOutputFormats(value: any): string[] {
+  private static parseOutputFormats(value: any): any[] {
     if (!value) return [];
     
     if (Array.isArray(value)) {
-      return value.flatMap(v => v.split(',').map(f => f.trim()));
+      return value.flatMap((v: string) => v.split(',').map((f: string) => f.trim()));
     }
     
-    return value.split(',').map(f => f.trim());
+    return String(value).split(',').map((f: string) => f.trim());
+  }
+
+  /**
+   * Parse shard configuration
+   */
+  private static parseShardConfig(value: string): any {
+    if (!value) return undefined;
+    
+    const [current, total] = value.split('/').map(Number);
+    return { current, total };
   }
 
   /**
@@ -1085,8 +1128,10 @@ export class CommandLineParser {
   private static parseProxyAuth(value: string): { username: string; password: string } | undefined {
     if (!value) return undefined;
     
-    const [username, password] = value.split(':');
-    return { username, password: password || '' };
+    const parts = value.split(':');
+    const username = parts[0] || '';
+    const password = parts[1] || '';
+    return { username, password };
   }
 
   /**
@@ -1168,7 +1213,7 @@ OPTIONS:`);
 
     // Add flags section
     console.log('\nFLAGS:');
-    for (const [name, flag] of this.FLAGS) {
+    for (const [, flag] of this.FLAGS) {
       let line = `  --${flag.name}`;
       
       if (flag.aliases && flag.aliases.length > 0) {
@@ -1302,7 +1347,7 @@ For more information, visit: https://github.com/company/cs-test-framework`);
       }
       
     } catch (error) {
-      console.error(`Error listing tags: ${error.message}`);
+      console.error(`Error listing tags: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1328,7 +1373,8 @@ For more information, visit: https://github.com/company/cs-test-framework`);
           } else if (entry.name.endsWith('.feature')) {
             // Read first line to get feature name
             const content = fs.readFileSync(fullPath, 'utf-8');
-            const firstLine = content.split('\n')[0];
+            const lines = content.split('\n');
+            const firstLine = lines[0] || '';
             const featureName = firstLine.replace(/^Feature:\s*/, '').trim();
             
             console.log(`  ${relativePath}`);
@@ -1344,7 +1390,7 @@ For more information, visit: https://github.com/company/cs-test-framework`);
       console.log('  npm test -- --feature=features/api/*.feature');
       
     } catch (error) {
-      console.error(`Error listing features: ${error.message}`);
+      console.error(`Error listing features: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1367,7 +1413,7 @@ For more information, visit: https://github.com/company/cs-test-framework`);
         let currentTags: string[] = [];
         
         for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
+          const line = lines[i]!.trim();
           
           if (line.startsWith('Feature:')) {
             currentFeature = line.replace('Feature:', '').trim();
@@ -1409,7 +1455,7 @@ For more information, visit: https://github.com/company/cs-test-framework`);
       console.log('  npm test -- --scenario="*login*"');
       
     } catch (error) {
-      console.error(`Error listing scenarios: ${error.message}`);
+      console.error(`Error listing scenarios: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1417,15 +1463,16 @@ For more information, visit: https://github.com/company/cs-test-framework`);
    * Handle parse errors
    */
   private static handleParseError(error: any): void {
-    console.error(`\n❌ Error: ${error.message}\n`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`\n❌ Error: ${errorMessage}\n`);
     
     // Suggest help
     console.error('Run with --help for usage information.');
     
     // Show relevant help for common errors
-    if (error.message.includes('Unknown option')) {
+    if (errorMessage.includes('Unknown option')) {
       console.error('\nDid you mean one of these?');
-      const optionName = error.message.match(/Unknown option: (.+)/)?.[1];
+      const optionName = errorMessage.match(/Unknown option: (.+)/)?.[1];
       
       if (optionName) {
         // Find similar options
@@ -1449,28 +1496,36 @@ For more information, visit: https://github.com/company/cs-test-framework`);
       const matrix: number[][] = [];
       
       for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
+        if (!matrix[i]) matrix[i] = [];
+        matrix[i]![0] = i;
       }
       
       for (let j = 0; j <= a.length; j++) {
+        if (!matrix[0]) matrix[0] = [];
         matrix[0][j] = j;
       }
       
       for (let i = 1; i <= b.length; i++) {
+        if (!matrix[i]) matrix[i] = [];
         for (let j = 1; j <= a.length; j++) {
+          const prevRow = matrix[i - 1];
+          const currentRow = matrix[i];
+          if (!prevRow || !currentRow) continue;
+          
           if (b.charAt(i - 1) === a.charAt(j - 1)) {
-            matrix[i][j] = matrix[i - 1][j - 1];
+            currentRow[j] = prevRow[j - 1] || 0;
           } else {
-            matrix[i][j] = Math.min(
-              matrix[i - 1][j - 1] + 1,
-              matrix[i][j - 1] + 1,
-              matrix[i - 1][j] + 1
+            currentRow[j] = Math.min(
+              (prevRow[j - 1] || 0) + 1,
+              (currentRow[j - 1] || 0) + 1,
+              (prevRow[j] || 0) + 1
             );
           }
         }
       }
       
-      return matrix[b.length][a.length];
+      const lastRow = matrix[b.length];
+      return lastRow ? (lastRow[a.length] || 0) : 0;
     };
     
     // Find options with distance <= 3

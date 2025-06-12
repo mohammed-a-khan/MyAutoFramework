@@ -1,12 +1,24 @@
 // src/reporting/generators/ScreenshotGalleryGenerator.ts
 
-import { Screenshot, ScreenshotGallery, GalleryCategory, ReportTheme } from '../types/reporting.types';
+import { Screenshot, ReportTheme } from '../types/reporting.types';
 import { Logger } from '../../core/utils/Logger';
-import { FileUtils } from '../../core/utils/FileUtils';
 import { DateUtils } from '../../core/utils/DateUtils';
 
+// Define missing types locally
+interface ScreenshotGallery {
+  categories: GalleryCategory[];
+  totalScreenshots: number;
+  generatedAt: Date;
+}
+
+interface GalleryCategory {
+  name: string;
+  screenshots: Screenshot[];
+  description?: string;
+}
+
 export class ScreenshotGalleryGenerator {
-  private static readonly logger = new Logger(ScreenshotGalleryGenerator.name);
+  private static readonly logger = Logger.getInstance(ScreenshotGalleryGenerator.name);
   private theme: ReportTheme;
 
   constructor(theme: ReportTheme) {
@@ -46,29 +58,25 @@ export class ScreenshotGalleryGenerator {
       if (!categories.has(category)) {
         categories.set(category, {
           name: category,
-          count: 0,
-          screenshots: [],
-          icon: this.getCategoryIcon(category)
+          screenshots: []
         });
       }
       
       const cat = categories.get(category)!;
       cat.screenshots.push(screenshot);
-      cat.count++;
     });
 
     // Sort screenshots within each category
     categories.forEach(category => {
-      category.screenshots.sort((a, b) => 
+      category.screenshots.sort((a: Screenshot, b: Screenshot) => 
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
       );
     });
 
     return {
-      totalCount: screenshots.length,
       categories: Array.from(categories.values()),
-      failureScreenshots: screenshots.filter(s => s.context.includes('failure')),
-      beforeAfterPairs: this.findBeforeAfterPairs(screenshots)
+      totalScreenshots: screenshots.length,
+      generatedAt: new Date()
     };
   }
 
@@ -76,12 +84,13 @@ export class ScreenshotGalleryGenerator {
    * Determine screenshot category
    */
   private determineCategory(screenshot: Screenshot): string {
-    if (screenshot.tags?.includes('failure')) return 'Failures';
-    if (screenshot.tags?.includes('validation')) return 'Validations';
-    if (screenshot.tags?.includes('before')) return 'Before/After';
-    if (screenshot.tags?.includes('after')) return 'Before/After';
-    if (screenshot.context.includes('step')) return 'Step Evidence';
-    if (screenshot.context.includes('debug')) return 'Debug';
+    const desc = screenshot.description.toLowerCase();
+    if (screenshot.type === 'failure' || desc.includes('failure')) return 'Failures';
+    if (desc.includes('validation')) return 'Validations';
+    if (desc.includes('before')) return 'Before/After';
+    if (desc.includes('after')) return 'Before/After';
+    if (desc.includes('step')) return 'Step Evidence';
+    if (desc.includes('debug')) return 'Debug';
     return 'General';
   }
 
@@ -97,30 +106,9 @@ export class ScreenshotGalleryGenerator {
       'Debug': '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15c4.418 0 8-3.134 8-7s-3.582-7-8-7-8 3.134-8 7c0 1.76.743 3.37 1.97 4.6-.097 1.016-.417 2.13-.771 2.966-.079.186.074.394.273.362 2.256-.37 3.597-.938 4.18-1.234A9.06 9.06 0 0 0 8 15z"/></svg>',
       'General': '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.002 5.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/><path d="M2.002 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2h-12zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1h12z"/></svg>'
     };
-    return icons[category] || icons['General'];
+    return icons[category] || icons['General']!;
   }
 
-  /**
-   * Find before/after screenshot pairs
-   */
-  private findBeforeAfterPairs(screenshots: Screenshot[]): Array<{before: Screenshot; after: Screenshot}> {
-    const pairs: Array<{before: Screenshot; after: Screenshot}> = [];
-    const beforeScreenshots = screenshots.filter(s => s.tags?.includes('before'));
-    
-    beforeScreenshots.forEach(before => {
-      const after = screenshots.find(s => 
-        s.tags?.includes('after') && 
-        s.scenario === before.scenario &&
-        s.step === before.step
-      );
-      
-      if (after) {
-        pairs.push({ before, after });
-      }
-    });
-    
-    return pairs;
-  }
 
   /**
    * Generate gallery HTML
@@ -131,11 +119,11 @@ export class ScreenshotGalleryGenerator {
         <h2>Screenshot Gallery</h2>
         <div class="gallery-stats">
           <span class="stat-item">
-            <span class="stat-value">${gallery.totalCount}</span>
+            <span class="stat-value">${gallery.totalScreenshots}</span>
             <span class="stat-label">Total Screenshots</span>
           </span>
           <span class="stat-item">
-            <span class="stat-value">${gallery.failureScreenshots.length}</span>
+            <span class="stat-value">${gallery.categories.filter(c => c.name === 'Failures').reduce((sum, cat) => sum + cat.screenshots.length, 0)}</span>
             <span class="stat-label">Failure Screenshots</span>
           </span>
           <span class="stat-item">
@@ -171,7 +159,7 @@ export class ScreenshotGalleryGenerator {
           <select class="category-filter" onchange="filterByCategory(this.value)">
             <option value="">All Categories</option>
             ${gallery.categories.map(cat => `
-              <option value="${cat.name}">${cat.name} (${cat.count})</option>
+              <option value="${cat.name}">${cat.name} (${cat.screenshots.length})</option>
             `).join('')}
           </select>
           
@@ -205,24 +193,24 @@ export class ScreenshotGalleryGenerator {
         ${gallery.categories.map(category => `
           <div class="category-section" data-category="${category.name}">
             <div class="category-header">
-              <span class="category-icon">${category.icon}</span>
+              <span class="category-icon">${this.getCategoryIcon(category.name)}</span>
               <h3>${category.name}</h3>
-              <span class="category-count">${category.count} screenshots</span>
+              <span class="category-count">${category.screenshots.length} screenshots</span>
             </div>
             
             <div class="screenshots-grid">
-              ${category.screenshots.map((screenshot, index) => `
+              ${category.screenshots.map((screenshot) => `
                 <div class="screenshot-item" 
                      data-id="${screenshot.id}"
                      data-category="${category.name}"
                      data-timestamp="${screenshot.timestamp}"
-                     data-status="${screenshot.tags?.includes('failure') ? 'failed' : 'passed'}"
-                     data-search="${screenshot.name.toLowerCase()} ${screenshot.scenario.toLowerCase()} ${screenshot.step?.toLowerCase() || ''}">
+                     data-status="${screenshot.type === 'failure' ? 'failed' : 'passed'}"
+                     data-search="${screenshot.id.toLowerCase()} ${screenshot.description.toLowerCase()} ${screenshot.scenarioId.toLowerCase()}">
                   <div class="screenshot-thumbnail" onclick="openLightbox('${screenshot.id}')">
                     <img src="${screenshot.base64 ? 'data:image/png;base64,' + screenshot.base64 : screenshot.path}" 
-                         alt="${screenshot.name}"
+                         alt="${screenshot.description}"
                          loading="lazy">
-                    ${screenshot.tags?.includes('failure') ? '<div class="failure-badge">FAIL</div>' : ''}
+                    ${screenshot.type === 'failure' ? '<div class="failure-badge">FAIL</div>' : ''}
                     <div class="screenshot-overlay">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
                         <path d="M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0z"/>
@@ -231,57 +219,18 @@ export class ScreenshotGalleryGenerator {
                     </div>
                   </div>
                   <div class="screenshot-info">
-                    <div class="screenshot-name">${screenshot.name}</div>
+                    <div class="screenshot-name">${screenshot.description}</div>
                     <div class="screenshot-meta">
-                      <span class="meta-item">${screenshot.scenario}</span>
-                      ${screenshot.step ? `<span class="meta-item">${screenshot.step}</span>` : ''}
+                      <span class="meta-item">${screenshot.scenarioId}</span>
+                      <span class="meta-item">${screenshot.type}</span>
                     </div>
-                    <div class="screenshot-time">${DateUtils.formatTime(new Date(screenshot.timestamp))}</div>
+                    <div class="screenshot-time">${DateUtils.formatDateTime(new Date(screenshot.timestamp))}</div>
                   </div>
                 </div>
               `).join('')}
             </div>
           </div>
         `).join('')}
-        
-        ${gallery.beforeAfterPairs.length > 0 ? `
-          <div class="category-section" data-category="comparisons">
-            <div class="category-header">
-              <span class="category-icon">${this.getCategoryIcon('Before/After')}</span>
-              <h3>Before/After Comparisons</h3>
-              <span class="category-count">${gallery.beforeAfterPairs.length} pairs</span>
-            </div>
-            
-            <div class="comparison-grid">
-              ${gallery.beforeAfterPairs.map((pair, index) => `
-                <div class="comparison-item">
-                  <div class="comparison-header">
-                    <h4>${pair.before.scenario}</h4>
-                    <span>${pair.before.step || ''}</span>
-                  </div>
-                  <div class="comparison-images">
-                    <div class="before-image">
-                      <div class="image-label">Before</div>
-                      <img src="${pair.before.base64 ? 'data:image/png;base64,' + pair.before.base64 : pair.before.path}" 
-                           alt="Before"
-                           onclick="openComparisonLightbox('${pair.before.id}', '${pair.after.id}')">
-                    </div>
-                    <div class="comparison-slider" data-pair="${index}">
-                      <input type="range" min="0" max="100" value="50" 
-                             oninput="updateComparison(${index}, this.value)">
-                    </div>
-                    <div class="after-image">
-                      <div class="image-label">After</div>
-                      <img src="${pair.after.base64 ? 'data:image/png;base64,' + pair.after.base64 : pair.after.path}" 
-                           alt="After"
-                           onclick="openComparisonLightbox('${pair.before.id}', '${pair.after.id}')">
-                    </div>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
       </div>
 
       <!-- Lightbox -->
@@ -361,7 +310,7 @@ export class ScreenshotGalleryGenerator {
       }
 
       .gallery-header h2 {
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         font-size: 20px;
         font-weight: 600;
         margin: 0;
@@ -381,12 +330,12 @@ export class ScreenshotGalleryGenerator {
       .stat-value {
         font-size: 24px;
         font-weight: 600;
-        color: ${this.theme.colors.primary};
+        color: ${this.theme.colors?.primary || this.theme.primaryColor};
       }
 
       .stat-label {
         font-size: 12px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
         margin-top: 4px;
       }
 
@@ -402,7 +351,7 @@ export class ScreenshotGalleryGenerator {
         display: flex;
         gap: 8px;
         padding: 4px;
-        background: ${this.theme.colors.background.secondary};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
         border-radius: 6px;
       }
 
@@ -415,18 +364,18 @@ export class ScreenshotGalleryGenerator {
         border: none;
         border-radius: 4px;
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
         cursor: pointer;
         transition: all 0.2s;
       }
 
       .view-btn:hover {
-        background: ${this.theme.colors.background.primary};
+        background: ${this.theme.colors?.background || this.theme.backgroundColor};
       }
 
       .view-btn.active {
         background: white;
-        color: ${this.theme.colors.primary};
+        color: ${this.theme.colors?.primary || this.theme.primaryColor};
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       }
 
@@ -439,10 +388,10 @@ export class ScreenshotGalleryGenerator {
       .category-filter,
       .search-input {
         padding: 8px 12px;
-        border: 1px solid ${this.theme.colors.border};
+        border: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         border-radius: 6px;
         font-size: 13px;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         background: white;
       }
 
@@ -456,21 +405,21 @@ export class ScreenshotGalleryGenerator {
         gap: 6px;
         padding: 8px 12px;
         background: white;
-        border: 1px solid ${this.theme.colors.border};
+        border: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         border-radius: 6px;
         font-size: 13px;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         cursor: pointer;
         transition: all 0.2s;
       }
 
       .filter-btn:hover {
-        background: ${this.theme.colors.background.secondary};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
       }
 
       .filter-panel {
-        background: ${this.theme.colors.background.secondary};
-        border: 1px solid ${this.theme.colors.border};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
+        border: 1px solid ${this.theme.colors?.border || '#e5e7eb'};
         border-radius: 6px;
         padding: 16px;
         margin-bottom: 16px;
@@ -483,7 +432,7 @@ export class ScreenshotGalleryGenerator {
       .filter-section h4 {
         font-size: 13px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         margin-bottom: 8px;
       }
 
@@ -491,7 +440,7 @@ export class ScreenshotGalleryGenerator {
         display: block;
         margin-bottom: 4px;
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
       }
 
       .gallery-container {
@@ -515,22 +464,22 @@ export class ScreenshotGalleryGenerator {
         justify-content: center;
         width: 32px;
         height: 32px;
-        background: ${this.theme.colors.primary}10;
-        color: ${this.theme.colors.primary};
+        background: ${this.theme.colors?.primary || this.theme.primaryColor}10;
+        color: ${this.theme.colors?.primary || this.theme.primaryColor};
         border-radius: 6px;
       }
 
       .category-header h3 {
         font-size: 16px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         margin: 0;
         flex: 1;
       }
 
       .category-count {
         font-size: 13px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
       }
 
       /* Grid View */
@@ -541,7 +490,7 @@ export class ScreenshotGalleryGenerator {
       }
 
       .screenshot-item {
-        background: ${this.theme.colors.background.secondary};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
         border-radius: 8px;
         overflow: hidden;
         transition: all 0.2s;
@@ -557,7 +506,7 @@ export class ScreenshotGalleryGenerator {
         position: relative;
         aspect-ratio: 16/9;
         overflow: hidden;
-        background: ${this.theme.colors.background.primary};
+        background: ${this.theme.colors?.background || this.theme.backgroundColor};
       }
 
       .screenshot-thumbnail img {
@@ -571,7 +520,7 @@ export class ScreenshotGalleryGenerator {
         top: 8px;
         right: 8px;
         padding: 4px 8px;
-        background: ${this.theme.colors.error};
+        background: ${this.theme.colors?.error || this.theme.failureColor};
         color: white;
         font-size: 11px;
         font-weight: 600;
@@ -604,7 +553,7 @@ export class ScreenshotGalleryGenerator {
       .screenshot-name {
         font-size: 14px;
         font-weight: 500;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         margin-bottom: 4px;
         white-space: nowrap;
         overflow: hidden;
@@ -619,9 +568,9 @@ export class ScreenshotGalleryGenerator {
 
       .meta-item {
         font-size: 12px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
         padding: 2px 6px;
-        background: ${this.theme.colors.background.primary};
+        background: ${this.theme.colors?.background || this.theme.backgroundColor};
         border-radius: 3px;
         white-space: nowrap;
         overflow: hidden;
@@ -631,7 +580,7 @@ export class ScreenshotGalleryGenerator {
 
       .screenshot-time {
         font-size: 11px;
-        color: ${this.theme.colors.text.tertiary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
       }
 
       /* List View */
@@ -667,7 +616,7 @@ export class ScreenshotGalleryGenerator {
       }
 
       .comparison-item {
-        background: ${this.theme.colors.background.secondary};
+        background: ${this.theme.colors?.backgroundDark || this.theme.backgroundColor};
         border-radius: 8px;
         padding: 16px;
       }
@@ -679,13 +628,13 @@ export class ScreenshotGalleryGenerator {
       .comparison-header h4 {
         font-size: 14px;
         font-weight: 600;
-        color: ${this.theme.colors.text.primary};
+        color: ${this.theme.colors?.text || this.theme.textColor};
         margin: 0 0 4px 0;
       }
 
       .comparison-header span {
         font-size: 12px;
-        color: ${this.theme.colors.text.secondary};
+        color: ${this.theme.colors?.textLight || this.theme.textColor};
       }
 
       .comparison-images {
@@ -737,7 +686,7 @@ export class ScreenshotGalleryGenerator {
       }
 
       .comparison-slider input[type="range"]::-webkit-slider-track {
-        background: ${this.theme.colors.border};
+        background: ${this.theme.colors?.border || '#e5e7eb'};
         height: 4px;
         border-radius: 2px;
       }
@@ -747,7 +696,7 @@ export class ScreenshotGalleryGenerator {
         appearance: none;
         width: 16px;
         height: 16px;
-        background: ${this.theme.colors.primary};
+        background: ${this.theme.colors?.primary || this.theme.primaryColor};
         border-radius: 50%;
         cursor: pointer;
       }
@@ -1125,12 +1074,12 @@ export class ScreenshotGalleryGenerator {
           img.src = screenshot.base64 
             ? 'data:image/png;base64,' + screenshot.base64 
             : screenshot.path;
-          img.alt = screenshot.name;
+          img.alt = screenshot.description;
           
-          title.textContent = screenshot.name;
+          title.textContent = screenshot.description;
           meta.innerHTML = \`
-            <div>\${screenshot.scenario}</div>
-            \${screenshot.step ? '<div>' + screenshot.step + '</div>' : ''}
+            <div>Scenario: \${screenshot.scenarioId}</div>
+            <div>Type: \${screenshot.type}</div>
             <div>\${new Date(screenshot.timestamp).toLocaleString()}</div>
           \`;
           
@@ -1156,7 +1105,7 @@ export class ScreenshotGalleryGenerator {
           if (!screenshot) return;
           
           const link = document.createElement('a');
-          link.download = screenshot.name + '.png';
+          link.download = screenshot.id + '.png';
           
           if (screenshot.base64) {
             link.href = 'data:image/png;base64,' + screenshot.base64;

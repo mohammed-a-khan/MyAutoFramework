@@ -4,7 +4,7 @@
  * Includes brand theme, dark mode, accessibility themes, and custom variations
  */
 
-import { ThemeConfig, ColorPalette, FontConfig, AnimationConfig } from '../types/reporting.types';
+import { ThemeConfig } from './theme.types';
 
 export class ThemePresets {
   // CS Brand Theme - Default
@@ -15,14 +15,14 @@ export class ThemePresets {
     fonts: {
       base: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       heading: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-      mono: 'Consolas, "Courier New", monospace'
+      mono: 'Consolas, "Courier New", monospace',
     },
     breakpoints: {
       sm: '640px',
-      md: '768px', 
+      md: '768px',
       lg: '1024px',
       xl: '1280px',
-      '2xl': '1536px'
+      '2xl': '1536px',
     },
     animations: {
       duration: '300ms',
@@ -36,9 +36,9 @@ export class ThemePresets {
         .cs-brand-glow {
           animation: cs-brand-glow 2s ease-in-out infinite;
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Dark Theme
@@ -49,13 +49,13 @@ export class ThemePresets {
     fonts: {
       base: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       heading: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-      mono: 'Consolas, "Courier New", monospace'
+      mono: 'Consolas, "Courier New", monospace',
     },
     customColors: {
       // Override some dark theme colors for better CS branding
       primary: '#D13A9C',
       primaryLight: '#E95BAB',
-      primaryDark: '#B91C84'
+      primaryDark: '#B91C84',
     },
     animations: {
       duration: '300ms',
@@ -69,9 +69,9 @@ export class ThemePresets {
         .cs-dark-pulse {
           animation: cs-dark-pulse 3s ease-in-out infinite;
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Light Theme
@@ -82,16 +82,16 @@ export class ThemePresets {
     fonts: {
       base: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       heading: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      mono: '"JetBrains Mono", Consolas, monospace'
+      mono: '"JetBrains Mono", Consolas, monospace',
     },
     breakpoints: {
       sm: '640px',
       md: '768px',
-      lg: '1024px', 
+      lg: '1024px',
       xl: '1280px',
-      '2xl': '1536px'
+      '2xl': '1536px',
     },
-    minify: true
+    minify: true,
   };
 
   // High Contrast Theme (WCAG AAA Compliant)
@@ -102,14 +102,14 @@ export class ThemePresets {
     fonts: {
       base: 'Arial, sans-serif',
       heading: 'Arial Black, sans-serif',
-      mono: 'Consolas, monospace'
+      mono: 'Consolas, monospace',
     },
     animations: {
       duration: '0ms', // No animations for accessibility
       easing: 'none',
-      custom: ''
+      custom: '',
     },
-    minify: true
+    minify: true,
   };
 
   // Print Theme
@@ -120,14 +120,14 @@ export class ThemePresets {
     fonts: {
       base: 'Georgia, serif',
       heading: 'Georgia, serif',
-      mono: 'Courier, monospace'
+      mono: 'Courier, monospace',
     },
     animations: {
       duration: '0ms',
       easing: 'none',
-      custom: ''
+      custom: '',
     },
-    minify: true
+    minify: true,
   };
 
   // Executive Dashboard Theme
@@ -140,21 +140,21 @@ export class ThemePresets {
       primary: '#7B1450',
       primaryLight: '#93186C',
       primaryDark: '#5A0F3A',
-      
+
       // Muted backgrounds
       bgPrimary: '#FAFAFA',
       bgSecondary: '#F5F5F5',
       bgCard: '#FFFFFF',
-      
+
       // Professional text colors
       textPrimary: '#1A1A1A',
       textSecondary: '#4A4A4A',
-      textHeading: '#0A0A0A'
+      textHeading: '#0A0A0A',
     },
     fonts: {
       base: '"Helvetica Neue", Helvetica, Arial, sans-serif',
       heading: 'Georgia, "Times New Roman", serif',
-      mono: 'Monaco, Consolas, monospace'
+      mono: 'Monaco, Consolas, monospace',
     },
     animations: {
       duration: '500ms',
@@ -168,9 +168,9 @@ export class ThemePresets {
         .cs-executive-animate {
           animation: cs-executive-slide 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Developer Theme
@@ -183,28 +183,28 @@ export class ThemePresets {
       primary: '#00FF00',
       primaryLight: '#33FF33',
       primaryDark: '#00CC00',
-      
+
       secondary: '#00FFFF',
       secondaryLight: '#33FFFF',
       secondaryDark: '#00CCCC',
-      
+
       bgPrimary: '#0A0A0A',
       bgSecondary: '#1A1A1A',
       bgCard: '#1F1F1F',
-      
+
       textPrimary: '#00FF00',
       textSecondary: '#00CC00',
       textBody: '#33FF33',
-      
+
       success: '#00FF00',
       error: '#FF0066',
       warning: '#FFCC00',
-      info: '#00CCFF'
+      info: '#00CCFF',
     },
     fonts: {
       base: '"Fira Code", "JetBrains Mono", Consolas, monospace',
       heading: '"Fira Code", "JetBrains Mono", Consolas, monospace',
-      mono: '"Fira Code", "JetBrains Mono", Consolas, monospace'
+      mono: '"Fira Code", "JetBrains Mono", Consolas, monospace',
     },
     animations: {
       duration: '150ms',
@@ -226,9 +226,9 @@ export class ThemePresets {
           90% { opacity: 1; }
           100% { transform: translateY(100vh); opacity: 0; }
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Minimal Theme
@@ -240,37 +240,37 @@ export class ThemePresets {
       primary: '#000000',
       primaryLight: '#333333',
       primaryDark: '#000000',
-      
+
       secondary: '#FFFFFF',
       secondaryLight: '#FFFFFF',
       secondaryDark: '#F0F0F0',
-      
+
       bgPrimary: '#FFFFFF',
       bgSecondary: '#FAFAFA',
       bgCard: '#FFFFFF',
-      
+
       borderColor: '#E0E0E0',
       borderColorLight: '#F0F0F0',
-      
+
       shadowColor: 'rgba(0, 0, 0, 0.04)',
       shadowColorLight: 'rgba(0, 0, 0, 0.02)',
-      
+
       success: '#000000',
       error: '#000000',
       warning: '#000000',
-      info: '#000000'
+      info: '#000000',
     },
     fonts: {
       base: 'system-ui, -apple-system, sans-serif',
       heading: 'system-ui, -apple-system, sans-serif',
-      mono: 'ui-monospace, monospace'
+      mono: 'ui-monospace, monospace',
     },
     animations: {
       duration: '200ms',
       easing: 'ease',
-      custom: ''
+      custom: '',
     },
-    minify: true
+    minify: true,
   };
 
   // Colorful Theme
@@ -282,31 +282,31 @@ export class ThemePresets {
       primary: '#FF006E',
       primaryLight: '#FF4081',
       primaryDark: '#C9005A',
-      
+
       secondary: '#8338EC',
       secondaryLight: '#9D4EFF',
       secondaryDark: '#6927D3',
-      
+
       accent: '#FB5607',
       accentLight: '#FF6B35',
       accentDark: '#E24502',
-      
+
       bgPrimary: '#FFFBFE',
       bgSecondary: '#FFF0FA',
       bgCard: '#FFFFFF',
-      
+
       success: '#06FFB4',
       error: '#FF006E',
       warning: '#FFBE0B',
       info: '#3A86FF',
-      
+
       gradientStart: '#FF006E',
-      gradientEnd: '#8338EC'
+      gradientEnd: '#8338EC',
     },
     fonts: {
       base: '"DM Sans", -apple-system, sans-serif',
       heading: '"Space Grotesk", -apple-system, sans-serif',
-      mono: '"Space Mono", monospace'
+      mono: '"Space Mono", monospace',
     },
     animations: {
       duration: '400ms',
@@ -332,9 +332,9 @@ export class ThemePresets {
         .cs-vibrant-bounce {
           animation: cs-vibrant-bounce 1s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Retro Theme
@@ -346,30 +346,30 @@ export class ThemePresets {
       primary: '#FF6B6B',
       primaryLight: '#FF8787',
       primaryDark: '#FF5252',
-      
+
       secondary: '#4ECDC4',
       secondaryLight: '#6FD8D0',
       secondaryDark: '#3CBAB2',
-      
+
       accent: '#FFE66D',
       accentLight: '#FFEB84',
       accentDark: '#FFE052',
-      
+
       bgPrimary: '#FFF8E7',
       bgSecondary: '#FFF3D6',
       bgCard: '#FFFBF3',
-      
+
       textPrimary: '#2D3436',
       textSecondary: '#636E72',
       textBody: '#2D3436',
-      
+
       borderColor: '#FFE66D',
-      borderColorLight: '#FFF3D6'
+      borderColorLight: '#FFF3D6',
     },
     fonts: {
       base: '"Rubik", -apple-system, sans-serif',
       heading: '"Bebas Neue", sans-serif',
-      mono: '"Courier Prime", monospace'
+      mono: '"Courier Prime", monospace',
     },
     animations: {
       duration: '250ms',
@@ -388,9 +388,9 @@ export class ThemePresets {
         .cs-retro-shadow {
           box-shadow: 3px 3px 0 var(--cs-primary), 6px 6px 0 var(--cs-secondary);
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Ocean Theme
@@ -402,28 +402,28 @@ export class ThemePresets {
       primary: '#006BA6',
       primaryLight: '#0084CC',
       primaryDark: '#005280',
-      
+
       secondary: '#0496FF',
       secondaryLight: '#3FADFF',
       secondaryDark: '#0380E0',
-      
+
       accent: '#00D9FF',
       accentLight: '#33E2FF',
       accentDark: '#00C2E6',
-      
+
       bgPrimary: '#E8F4F8',
       bgSecondary: '#D1E9F0',
       bgCard: '#F5FAFE',
-      
+
       success: '#00BFA5',
       error: '#FF5252',
       warning: '#FFB74D',
-      info: '#0496FF'
+      info: '#0496FF',
     },
     fonts: {
       base: '"Lato", -apple-system, sans-serif',
       heading: '"Montserrat", -apple-system, sans-serif',
-      mono: '"Source Code Pro", monospace'
+      mono: '"Source Code Pro", monospace',
     },
     animations: {
       duration: '600ms',
@@ -446,9 +446,9 @@ export class ThemePresets {
         .cs-ocean-ripple {
           animation: cs-ocean-ripple 1s ease-out;
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   // Forest Theme
@@ -460,27 +460,27 @@ export class ThemePresets {
       primary: '#2D5016',
       primaryLight: '#3E6B1F',
       primaryDark: '#1C3A0F',
-      
+
       secondary: '#5C821A',
       secondaryLight: '#74A31E',
       secondaryDark: '#4A6A15',
-      
+
       accent: '#A0C334',
       accentLight: '#B4D348',
       accentDark: '#8CAF20',
-      
+
       bgPrimary: '#F7F9F3',
       bgSecondary: '#EFF4E6',
       bgCard: '#FAFBF8',
-      
+
       textPrimary: '#1A2409',
       textSecondary: '#3E4E2A',
-      textBody: '#2D3A1F'
+      textBody: '#2D3A1F',
     },
     fonts: {
       base: '"Nunito Sans", -apple-system, sans-serif',
       heading: '"Oswald", -apple-system, sans-serif',
-      mono: '"Inconsolata", monospace'
+      mono: '"Inconsolata", monospace',
     },
     animations: {
       duration: '400ms',
@@ -504,9 +504,9 @@ export class ThemePresets {
         .cs-forest-grow {
           animation: cs-forest-grow 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
-      `
+      `,
     },
-    minify: true
+    minify: true,
   };
 
   /**
@@ -525,7 +525,7 @@ export class ThemePresets {
       this.VIBRANT,
       this.RETRO,
       this.OCEAN,
-      this.FOREST
+      this.FOREST,
     ];
   }
 
@@ -552,7 +552,7 @@ export class ThemePresets {
       { id: 'cs-vibrant', name: 'Vibrant', description: 'Colorful and energetic theme' },
       { id: 'cs-retro', name: 'Retro', description: 'Nostalgic retro-inspired theme' },
       { id: 'cs-ocean', name: 'Ocean', description: 'Calm blue ocean-inspired theme' },
-      { id: 'cs-forest', name: 'Forest', description: 'Natural green forest theme' }
+      { id: 'cs-forest', name: 'Forest', description: 'Natural green forest theme' },
     ];
   }
 
@@ -560,29 +560,29 @@ export class ThemePresets {
    * Create custom theme by merging with base preset
    */
   static createCustomTheme(basePreset: string, customizations: Partial<ThemeConfig>): ThemeConfig {
-    const base = this.getPresetById(basePreset) || this.CS_BRAND;
-    
+    const base = this.getPresetById(basePreset) ?? this.CS_BRAND;
+
     return {
       ...base,
       ...customizations,
-      id: customizations.id || `custom-${Date.now()}`,
-      name: customizations.name || `Custom ${base.name}`,
+      id: customizations.id ?? `custom-${Date.now()}`,
+      name: customizations.name ?? `Custom ${base.name}`,
       fonts: {
         ...base.fonts,
-        ...customizations.fonts
+        ...customizations.fonts,
       },
       customColors: {
         ...base.customColors,
-        ...customizations.customColors
+        ...customizations.customColors,
       },
       animations: {
         ...base.animations,
-        ...customizations.animations
+        ...customizations.animations,
       },
       breakpoints: {
         ...base.breakpoints,
-        ...customizations.breakpoints
-      }
+        ...customizations.breakpoints,
+      },
     };
   }
 
@@ -595,7 +595,7 @@ export class ThemePresets {
     if (!theme.id) errors.push('Theme ID is required');
     if (!theme.name) errors.push('Theme name is required');
     if (!theme.preset) errors.push('Base preset is required');
-    
+
     if (theme.fonts) {
       if (!theme.fonts.base) errors.push('Base font is required');
       if (!theme.fonts.heading) errors.push('Heading font is required');
@@ -622,17 +622,17 @@ export class ThemePresets {
     if (/^#[0-9A-F]{3}$/i.test(color)) return true;
     if (/^#[0-9A-F]{6}$/i.test(color)) return true;
     if (/^#[0-9A-F]{8}$/i.test(color)) return true;
-    
+
     // Check rgb/rgba
     if (/^rgba?\([\d\s,%.]+\)$/i.test(color)) return true;
-    
+
     // Check hsl/hsla
     if (/^hsla?\([\d\s,%]+\)$/i.test(color)) return true;
-    
+
     // Check CSS color names
     const cssColors = ['transparent', 'currentColor', 'inherit', 'initial', 'unset'];
     if (cssColors.includes(color.toLowerCase())) return true;
-    
+
     return false;
   }
 
@@ -647,13 +647,13 @@ export class ThemePresets {
    * Import theme from JSON
    */
   static importTheme(json: string): ThemeConfig {
-    const theme = JSON.parse(json);
+    const theme = JSON.parse(json) as ThemeConfig;
     const validation = this.validateTheme(theme);
-    
+
     if (!validation.valid) {
       throw new Error(`Invalid theme configuration: ${validation.errors.join(', ')}`);
     }
-    
+
     return theme;
   }
 }

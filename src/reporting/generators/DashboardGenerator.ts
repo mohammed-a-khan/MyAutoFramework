@@ -13,9 +13,6 @@ import {
   WaterfallChartData,
   GanttChartData,
   HeatmapData,
-  ExecutionMetrics,
-  NetworkMetrics,
-  BrowserMetrics,
   ErrorAnalysis,
   AIHealingReport,
   ReportTheme,
@@ -26,11 +23,13 @@ import {
 import { Logger } from '../../core/utils/Logger';
 
 // Status color constants
-const STATUS_COLORS = {
-  passed: '#28A745',
-  failed: '#DC3545',
-  skipped: '#FFC107',
-  pending: '#17A2B8'
+const STATUS_COLORS: Record<TestStatus, string> = {
+  [TestStatus.PASSED]: '#28A745',
+  [TestStatus.FAILED]: '#DC3545',
+  [TestStatus.SKIPPED]: '#FFC107',
+  [TestStatus.PENDING]: '#17A2B8',
+  [TestStatus.UNDEFINED]: '#6C757D',
+  [TestStatus.AMBIGUOUS]: '#E83E8C'
 };
 
 /**
@@ -890,6 +889,16 @@ body {
   }
 
   /**
+   * Extract numeric value from trend data
+   */
+  private getTrendNumericValue(trend: number | { data: number[]; change: number; direction: 'up' | 'down' | 'stable' }): number {
+    if (typeof trend === 'number') {
+      return trend;
+    }
+    return trend.change;
+  }
+
+  /**
    * Generate KPI section with animated cards
    */
   private generateKPISection(summary: ExecutionSummary): string {
@@ -897,7 +906,7 @@ body {
       {
         title: 'Pass Rate',
         value: `${summary.passRate.toFixed(1)}%`,
-        change: this.calculateTrendChange(summary.trends?.passRateTrend || 0),
+        change: this.calculateTrendChange(this.getTrendNumericValue(summary.trends?.passRateTrend || 0)),
         color: this.getPassRateColor(summary.passRate),
         icon: '✓'
       },
@@ -918,7 +927,7 @@ body {
       {
         title: 'Execution Time',
         value: this.formatDuration(summary.executionTime),
-        change: this.calculateTimeChange(summary.trends?.executionTimeTrend || 0),
+        change: this.calculateTimeChange(this.getTrendNumericValue(summary.trends?.executionTimeTrend || 0)),
         color: '#FFC107',
         icon: '⏱'
       },
@@ -966,7 +975,7 @@ body {
   /**
    * Generate charts grid with custom visualizations
    */
-  private generateChartsGrid(charts: ChartDataCollection, theme: ReportTheme): string {
+  private generateChartsGrid(_charts: ChartDataCollection, _theme: ReportTheme): string {
     return `
 <section class="charts-grid">
     <div class="chart-card">
@@ -1068,6 +1077,10 @@ body {
       return '';
     }
 
+    const passRateTrendValue = this.getTrendNumericValue(trends.passRateTrend);
+    const executionTimeTrendValue = this.getTrendNumericValue(trends.executionTimeTrend);
+    const failureRateTrendValue = this.getTrendNumericValue(trends.failureRateTrend);
+
     return `
 <section class="trends-section">
     <h2 class="section-title">Execution Trends</h2>
@@ -1075,8 +1088,8 @@ body {
         <div class="trend-card">
             <div class="trend-header">
                 <span class="trend-title">Pass Rate Trend</span>
-                <div class="trend-indicator ${trends.passRateTrend >= 0 ? 'positive' : 'negative'}">
-                    ${trends.passRateTrend >= 0 ? '↑' : '↓'} ${Math.abs(trends.passRateTrend).toFixed(1)}%
+                <div class="trend-indicator ${passRateTrendValue >= 0 ? 'positive' : 'negative'}">
+                    ${passRateTrendValue >= 0 ? '↑' : '↓'} ${Math.abs(passRateTrendValue).toFixed(1)}%
                 </div>
             </div>
             <div class="trend-chart" id="pass-rate-mini-trend"></div>
@@ -1085,8 +1098,8 @@ body {
         <div class="trend-card">
             <div class="trend-header">
                 <span class="trend-title">Execution Time Trend</span>
-                <div class="trend-indicator ${trends.executionTimeTrend <= 0 ? 'positive' : 'negative'}">
-                    ${trends.executionTimeTrend <= 0 ? '↓' : '↑'} ${Math.abs(trends.executionTimeTrend).toFixed(1)}%
+                <div class="trend-indicator ${executionTimeTrendValue <= 0 ? 'positive' : 'negative'}">
+                    ${executionTimeTrendValue <= 0 ? '↓' : '↑'} ${Math.abs(executionTimeTrendValue).toFixed(1)}%
                 </div>
             </div>
             <div class="trend-chart" id="execution-time-mini-trend"></div>
@@ -1095,8 +1108,8 @@ body {
         <div class="trend-card">
             <div class="trend-header">
                 <span class="trend-title">Failure Rate Trend</span>
-                <div class="trend-indicator ${trends.failureRateTrend <= 0 ? 'positive' : 'negative'}">
-                    ${trends.failureRateTrend <= 0 ? '↓' : '↑'} ${Math.abs(trends.failureRateTrend).toFixed(1)}%
+                <div class="trend-indicator ${failureRateTrendValue <= 0 ? 'positive' : 'negative'}">
+                    ${failureRateTrendValue <= 0 ? '↓' : '↑'} ${Math.abs(failureRateTrendValue).toFixed(1)}%
                 </div>
             </div>
             <div class="trend-chart" id="failure-rate-mini-trend"></div>
@@ -1207,10 +1220,11 @@ body {
           'Total Blocking Time': { value: metrics.totalBlockingTime, benchmark: benchmarks.totalBlockingTime }
         }).map(([name, data]) => {
           const percentage = Math.min((data.value / data.benchmark) * 100, 100);
-          const status = percentage <= 100 ? 'good' : 'poor';
+          const performanceStatus = percentage <= 100 ? 'good' : 'poor';
+          const statusClass = performanceStatus === 'good' ? 'status-good' : 'status-poor';
           
           return `
-          <div class="performance-metric">
+          <div class="performance-metric ${statusClass}">
               <span class="metric-name">${name}</span>
               <div class="metric-bar">
                   <div class="metric-fill" style="width: ${percentage}%; background: ${this.getPerformanceColor(percentage)}"></div>
@@ -1250,7 +1264,7 @@ body {
   /**
    * Generate quick actions
    */
-  private generateQuickActions(report: CSReport): string {
+  private generateQuickActions(_report: CSReport): string {
     return `
 <div class="quick-actions">
     <button class="action-button" onclick="window.print()">
@@ -3348,7 +3362,7 @@ function exportAsJSON() {
   /**
    * Prepare heatmap data
    */
-  private prepareHeatmap(report: CSReport): HeatmapData {
+  private prepareHeatmap(_report: CSReport): HeatmapData {
     // Create a heatmap of test execution by hour and day
     const hours = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0') + ':00');
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -3357,8 +3371,11 @@ function exportAsJSON() {
     // This would be populated with actual execution data
     // For now, using sample data
     for (let i = 0; i < 7; i++) {
-      for (let j = 0; j < 24; j++) {
-        data[i][j] = Math.random() * 100;
+      const row = data[i];
+      if (row) {
+        for (let j = 0; j < 24; j++) {
+          row[j] = Math.random() * 100;
+        }
       }
     }
     
@@ -3425,7 +3442,10 @@ function exportAsJSON() {
   private calculateCountChange(current: number, trends?: TrendData): { type: 'positive' | 'negative', value: number } | null {
     if (!trends || !trends.lastExecutions || trends.lastExecutions.length < 2) return null;
     
-    const previous = trends.lastExecutions[trends.lastExecutions.length - 2].totalTests;
+    const previousExecution = trends.lastExecutions[trends.lastExecutions.length - 2];
+    if (!previousExecution) return null;
+    
+    const previous = previousExecution.totalTests;
     const change = ((current - previous) / previous) * 100;
     
     return {
@@ -3434,12 +3454,14 @@ function exportAsJSON() {
     };
   }
 
-  private calculateFailureChange(current: number, trends?: TrendData): { type: 'positive' | 'negative', value: number } | null {
+  private calculateFailureChange(_current: number, trends?: TrendData): { type: 'positive' | 'negative', value: number } | null {
     if (!trends || trends.failureRateTrend === undefined) return null;
     
+    const failureRateTrendValue = this.getTrendNumericValue(trends.failureRateTrend);
+    
     return {
-      type: trends.failureRateTrend <= 0 ? 'positive' : 'negative',
-      value: Math.abs(trends.failureRateTrend)
+      type: failureRateTrendValue <= 0 ? 'positive' : 'negative',
+      value: Math.abs(failureRateTrendValue)
     };
   }
 

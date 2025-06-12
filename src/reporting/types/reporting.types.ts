@@ -18,6 +18,61 @@
 import { ExecutionStatus } from '../../bdd/types/bdd.types';
 
 // ============================================================================
+// SUMMARY GENERATOR TYPES
+// ============================================================================
+
+/**
+ * Summary statistics for execution
+ */
+export interface SummaryStats {
+  totalFeatures: number;
+  totalScenarios: number;
+  totalSteps: number;
+  passedScenarios: number;
+  failedScenarios: number;
+  skippedScenarios: number;
+  passedSteps: number;
+  failedSteps: number;
+  passRate: number;
+  avgDuration: number;
+  totalDuration: number;
+  passRateImprovement: number;
+  durationImprovement: number;
+  criticalFailures: number;
+  riskLevel: string;
+  executionEnvironment: string;
+  parallelExecution: boolean;
+  parallelWorkers: number;
+  retryStats: {
+    totalRetries: number;
+    scenariosWithRetries: number;
+  };
+}
+
+/**
+ * Highlight item for summary
+ */
+export interface HighlightItem {
+  type: 'success' | 'improvement' | 'warning' | 'alert' | 'info';
+  title: string;
+  description: string;
+  icon: string;
+}
+
+/**
+ * Recommendation item for improvements
+ */
+export interface RecommendationItem {
+  priority: 'high' | 'medium' | 'low';
+  category: string;
+  title: string;
+  description: string;
+  action: string;
+  impact: string;
+  effort: string;
+}
+
+// ============================================================================
 // CORE REPORT TYPES
 // ============================================================================
 
@@ -116,6 +171,24 @@ export interface ExecutionSummary {
   status: ExecutionStatus;
   trends: TrendData;
   statistics: ExecutionStatistics;
+  // Additional properties used in PDFExporter
+  projectName?: string;
+  executionId?: string;
+  passed?: number;
+  failed?: number;
+  skipped?: number;
+  duration?: number;
+  startTime?: Date;
+  endTime?: Date;
+  // Properties used in SummaryGenerator
+  scenarios: ScenarioSummary[];
+  features: FeatureReport[];
+  environment: string;
+  previousRun?: {
+    passRate: number;
+    avgDuration: number;
+    failedScenarios: string[];
+  };
 }
 
 // ExecutionStatus is now imported from bdd.types.ts
@@ -158,10 +231,21 @@ export interface FlakyTest {
  * Trend data for historical comparison
  */
 export interface TrendData {
-  passRateTrend: number; // Percentage change
-  executionTimeTrend: number; // Percentage change
-  failureRateTrend: number; // Percentage change
+  passRateTrend: number | { data: number[]; change: number; direction: 'up' | 'down' | 'stable' }; // Percentage change
+  executionTimeTrend: number | { data: number[]; change: number; direction: 'up' | 'down' | 'stable' }; // Percentage change
+  failureRateTrend: number | { data: number[]; change: number; direction: 'up' | 'down' | 'stable' }; // Percentage change
   lastExecutions: ExecutionHistory[];
+  stabilityTrend?: { data: number[]; change: number; direction: 'up' | 'down' | 'stable' };
+  historicalComparison?: Array<{
+    date?: Date;
+    passRate?: number;
+    executionTime?: number;
+    testCount?: number;
+    metric?: string;
+    current?: string;
+    previous?: string;
+    change?: number;
+  }>;
 }
 
 /**
@@ -186,6 +270,7 @@ export interface ExecutionHistory {
 export interface FeatureReport {
   featureId: string;
   feature: string;
+  name?: string; // Added for compatibility
   description: string;
   uri: string;
   line: number;
@@ -239,6 +324,36 @@ export interface ScenarioSummary {
   status: TestStatus;
   duration: number;
   retryCount: number;
+  // Extended properties for reporting
+  description?: string;
+  tags?: string[];
+  line?: number;
+  keyword?: string;
+  startTime?: Date;
+  endTime?: Date;
+  error?: string;
+  errorStack?: string;
+  errorDetails?: string;
+  steps?: Array<{
+    keyword: string;
+    text: string;
+    status: TestStatus;
+    duration: number;
+    line?: number;
+    error?: string;
+    errorStack?: string;
+    dataTable?: any[];
+    docString?: string;
+  }>;
+  parameters?: Record<string, any>;
+  examples?: any;
+  screenshots?: Array<{ name?: string; path: string }>;
+  videos?: Array<{ name?: string; path: string }>;
+  logs?: Array<{
+    timestamp: Date;
+    level: string;
+    message: string;
+  }>;
 }
 
 // ============================================================================
@@ -270,6 +385,10 @@ export interface ScenarioReport {
   error?: ErrorDetails;
   aiHealing?: AIHealingAttempt[];
   context: ScenarioContext;
+  // Additional properties used in ScenarioReportGenerator
+  networkLogs?: NetworkLog[];
+  videos?: Array<{ name?: string; path: string }>;
+  consoleLogs?: ConsoleLog[];
 }
 
 /**
@@ -432,6 +551,7 @@ export interface EvidenceCollection {
   uploads: Upload[];
   har?: HARFile;
   custom?: CustomEvidence[];
+  logs?: any[];
 }
 
 /**
@@ -539,6 +659,16 @@ export interface NetworkLog {
   responseSize: number;
   headers: Record<string, string>;
   timing: NetworkTiming;
+  // Additional properties used in ScenarioReportGenerator
+  startTime?: Date;
+  endTime?: Date;
+  size?: number;
+  resourceType?: string;
+  cached?: boolean;
+  error?: string;
+  requestBody?: string;
+  responseBody?: string;
+  responseHeaders?: Record<string, string>;
 }
 
 /**
@@ -688,6 +818,44 @@ export interface ReportMetrics {
   network: NetworkMetrics;
   system: SystemMetrics;
   custom?: Record<string, any>;
+  performance?: any;
+  resources?: any;
+}
+
+/**
+ * Quality metrics for test execution
+ */
+export interface QualityMetrics {
+  testCoverage: number;
+  codeCoverage?: number;
+  bugDensity: number;
+  defectEscapeRate: number;
+  automationRate: number;
+  flakiness: number;
+  reliability: number;
+  maintainabilityIndex: number;
+  technicalDebt: number;
+  testEffectiveness: number;
+  meanTimeToDetect: number;
+  meanTimeToRepair: number;
+  flakyTests: Array<{ name: string; flakinessRate: number; flakyRate?: number }>;
+  criticalBugs: number;
+  majorBugs: number;
+  minorBugs: number;
+  // Additional properties used in MetricsGenerator
+  scenarioPassRate: number;
+  stepPassRate: number;
+  failureRate: number;
+  skipRate: number;
+  totalPassed: number;
+  totalFailed: number;
+  totalSkipped: number;
+  failuresByType: Array<{ type: string; count: number }>;
+  failuresByStep: Array<{ step: string; count: number }>;
+  elementCoverage: number;
+  apiCoverage: number;
+  criticalFailures: Array<{ scenario: string; impact: string }>;
+  stabilityScore?: number;
 }
 
 /**
@@ -704,6 +872,11 @@ export interface ExecutionMetrics {
   queueTime: number;
   retryRate: number;
   timeToFirstFailure?: number;
+  totalFeatures?: number;
+  parallelWorkers?: number;
+  avgWorkerUtilization?: number;
+  totalRetries?: number;
+  tagDistribution?: Array<{ tag: string; count: number }> | Record<string, number>;
 }
 
 /**
@@ -1199,6 +1372,12 @@ export interface AIHealingAttempt {
   success: boolean;
   duration: number;
   scenarioId: string;
+  // Additional properties used in ScenarioReportGenerator
+  element?: string;
+  recommendation?: string;
+  errorMessage?: string;
+  screenshot?: string;
+  alternatives?: Array<{ locator: string; confidence: number; reason?: string }>;
 }
 
 /**
@@ -1429,7 +1608,8 @@ export enum ChartType {
   SANKEY = 'sankey',
   POLAR = 'polar',
   BOX = 'box',
-  VIOLIN = 'violin'
+  VIOLIN = 'violin',
+  FUNNEL = 'funnel'
 }
 
 /**
@@ -1446,6 +1626,11 @@ export interface ChartOptions {
   tooltip?: TooltipOptions;
   scales?: ScaleOptions;
   plugins?: Record<string, any>;
+  title?: string;
+  showLegend?: boolean;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  showValues?: boolean;
 }
 
 /**
@@ -1661,6 +1846,7 @@ export interface TreemapData extends ChartData {
  */
 export interface TreemapNode {
   name: string;
+  label?: string;
   value: number;
   color?: string;
   children?: TreemapNode[];
@@ -1688,6 +1874,199 @@ export interface BoxPlotDataset {
     max: number;
     outliers?: number[];
   }>;
+}
+
+/**
+ * Chart colors configuration
+ */
+export interface ChartColors {
+  dataColors: string[];
+  backgroundColor?: string;
+  textColor?: string;
+  gridColor?: string;
+  primaryColor?: string;
+  primaryDark?: string;
+  heatmapColors?: string[];
+}
+
+/**
+ * Point interface for charts
+ */
+export interface Point {
+  x: number;
+  y: number;
+  r?: number;
+  label?: string;
+  value?: number;
+}
+
+/**
+ * Dataset interface for charts
+ */
+export interface DataSet {
+  label: string;
+  data: number[] | Point[];
+  color?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+}
+
+/**
+ * Doughnut chart data structure
+ */
+export interface DoughnutChart extends ChartData {
+  labels: string[];
+  values: number[];
+  centerText?: {
+    value: string;
+    label: string;
+  };
+}
+
+/**
+ * Bar chart data structure
+ */
+export interface BarChart extends ChartData {
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: number[];
+    color?: string;
+  }>;
+}
+
+/**
+ * Line chart data structure
+ */
+export interface LineChart extends ChartData {
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: number[];
+    color?: string;
+    fill?: boolean;
+    smooth?: boolean;
+    borderWidth?: number;
+    pointRadius?: number;
+  }>;
+}
+
+/**
+ * Area chart data structure
+ */
+export interface AreaChart extends ChartData {
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: number[];
+    color?: string;
+  }>;
+}
+
+/**
+ * Pie chart data structure
+ */
+export interface PieChart extends ChartData {
+  labels: string[];
+  values: number[];
+}
+
+/**
+ * Radar chart data structure
+ */
+export interface RadarChart extends ChartData {
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: number[];
+    color?: string;
+  }>;
+}
+
+/**
+ * Scatter chart data structure
+ */
+export interface ScatterChart extends ChartData {
+  datasets: Array<{
+    label: string;
+    data: Point[];
+    color?: string;
+    pointRadius?: number;
+  }>;
+}
+
+/**
+ * Bubble chart data structure
+ */
+export interface BubbleChart extends ChartData {
+  datasets: Array<{
+    label: string;
+    data: Point[];
+    color?: string;
+  }>;
+}
+
+/**
+ * Heatmap chart data structure
+ */
+export interface HeatmapChart extends ChartData {
+  xLabels: string[];
+  yLabels: string[];
+  data: number[][];
+}
+
+/**
+ * Treemap chart data structure
+ */
+export interface TreemapChart extends ChartData {
+  data: TreemapNode[];
+}
+
+/**
+ * Sankey chart data structure
+ */
+export interface SankeyChart extends ChartData {
+  nodes: Array<{
+    id: string;
+    label: string;
+  }>;
+  links: Array<{
+    source: string;
+    target: string;
+    value: number;
+  }>;
+}
+
+/**
+ * Gauge chart data structure
+ */
+export interface GaugeChart extends ChartData {
+  value: number;
+  min: number;
+  max: number;
+  label?: string;
+  zones?: Array<{
+    min: number;
+    max: number;
+    color: string;
+    label?: string;
+  }>;
+}
+
+/**
+ * Waterfall chart data structure  
+ */
+export interface WaterfallChart extends ChartData {
+  categories: string[];
+  values: number[];
+}
+
+/**
+ * Funnel chart data structure
+ */
+export interface FunnelChart extends ChartData {
+  labels: string[];
+  values: number[];
 }
 
 // ============================================================================
@@ -1722,6 +2101,26 @@ export interface ReportTheme {
   fontSize: string;
   logo?: string;
   customCSS?: string;
+  colors?: {
+    primary: string;
+    secondary: string;
+    success: string;
+    error: string;
+    warning: string;
+    info: string;
+    danger: string;
+    background: string;
+    backgroundDark: string;
+    text: string;
+    textLight: string;
+    border: string;
+    borderLight: string;
+    good: string;
+    fair: string;
+    poor: string;
+    primaryDark?: string;
+    [key: string]: string | undefined;
+  };
 }
 
 /**
@@ -2283,7 +2682,16 @@ export interface ExecutionResult {
 /**
  * Report options (alias for SortOptions for compatibility)
  */
-export type ReportOptions = SortOptions;
+export interface ReportOptions {
+  outputDir?: string;
+  reportName?: string;
+  environment?: string;
+  formats?: ExportFormat[];
+  theme?: Partial<ReportTheme>;
+  includeTimestamp?: boolean;
+  parallel?: boolean;
+  compress?: boolean;
+}
 
 /**
  * Report result after generation
@@ -2381,6 +2789,8 @@ export interface ReportData {
   evidence: EvidenceCollection;
   metrics: ReportMetrics;
   aggregatedData?: AggregatedData;
+  environment?: string;
+  tags?: string[];
 }
 
 // ============================================================================
@@ -2735,6 +3145,8 @@ export interface ExportResult {
   error?: string;
   size?: number;
   format: ExportFormat;
+  duration?: number;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -2747,6 +3159,111 @@ export interface ExportOptions {
   includeCharts?: boolean;
   compress?: boolean;
   metadata?: Record<string, any>;
+}
+
+/**
+ * PDF export options interface
+ */
+export interface PDFOptions extends ExportOptions {
+  pageFormat?: PDFFormat;
+  pageSize?: PDFPageSize;
+  orientation?: 'portrait' | 'landscape';
+  margins?: {
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+  };
+  header?: {
+    enabled?: boolean;
+    height?: number;
+    content?: string;
+  };
+  footer?: {
+    enabled?: boolean;
+    height?: number;
+    content?: string;
+  };
+  watermark?: {
+    enabled?: boolean;
+    text?: string;
+    opacity?: number;
+  };
+  encryption?: {
+    enabled?: boolean;
+    userPassword?: string;
+    ownerPassword?: string;
+    permissions?: PDFPermissions;
+  };
+  compression?: boolean;
+  tableOfContents?: boolean;
+  pageNumbers?: boolean;
+  bookmarks?: boolean;
+  metadata?: {
+    title?: string;
+    author?: string;
+    subject?: string;
+    keywords?: string[];
+    creator?: string;
+    producer?: string;
+  };
+  // Additional properties used in PDFExporter
+  includeToc?: boolean;
+  includeBookmarks?: boolean;
+  attachments?: Array<{ name: string; path: string; description?: string }>;
+  optimize?: boolean;
+  security?: {
+    userPassword?: string;
+    ownerPassword?: string;
+    permissions?: PDFPermissions;
+  };
+  outputDir?: string;
+  filename?: string;
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string;
+  // Additional properties for Playwright PDF generation
+  margin?: {
+    top?: string;
+    right?: string;
+    bottom?: string;
+    left?: string;
+  };
+  printBackground?: boolean;
+  displayHeaderFooter?: boolean;
+  headerTemplate?: string;
+  footerTemplate?: string;
+  landscape?: boolean;
+  scale?: number;
+  preferCSSPageSize?: boolean;
+  pageRanges?: string;
+  includeOutline?: boolean;
+  taggedPDF?: boolean;
+}
+
+/**
+ * PDF format types
+ */
+export type PDFFormat = 'A4' | 'Letter' | 'Legal' | 'Tabloid' | 'Custom';
+
+/**
+ * PDF page size types
+ */
+export type PDFPageSize = [number, number] | 'A4' | 'Letter' | 'Legal' | 'Tabloid';
+
+/**
+ * PDF permissions interface
+ */
+export interface PDFPermissions {
+  printing?: boolean;
+  modifying?: boolean;
+  copying?: boolean;
+  annotating?: boolean;
+  fillingForms?: boolean;
+  contentAccessibility?: boolean;
+  documentAssembly?: boolean;
+  printingHighQuality?: boolean;
 }
 
 /**
@@ -2813,13 +3330,28 @@ export interface MetricsData {
   alerts?: Alert[];
   recommendations?: string[];
   systemMetrics?: [string, SystemMetrics[]][];
-  browserMetrics?: [string, BrowserMetrics[]][];
+  browserMetrics?: [string, BrowserMetrics[]][] | BrowserMetrics;
   testMetrics?: [string, TestMetrics[]][];
   customMetrics?: [string, CustomMetric[]][];
   metricSnapshots?: [string, MetricSnapshot[]][];
   aggregatedData?: [string, AggregatedMetrics[]][];
   gcMetrics?: any[];
   memoryLeaks?: [string, number[]][];
+  scenarios?: any[];
+  features?: any[];
+  networkData?: any[];
+  parallelExecutions?: any[];
+  elementStats?: {
+    totalElements: number;
+    healedElements: number;
+    interactedElements?: number;
+  };
+  apiStats?: {
+    totalRequests: number;
+    avgResponseTime: number;
+    totalEndpoints?: number;
+    testedEndpoints?: number;
+  };
 }
 
 /**
@@ -2969,6 +3501,19 @@ export interface PerformanceMetrics {
   memorySnapshots: [string, MemoryInfo[]][];
   customMarks: [string, PerformanceEntry[]][];
   customMeasures: [string, PerformanceEntry[]][];
+  avgScenarioDuration?: number;
+  minScenarioDuration?: number;
+  maxScenarioDuration?: number;
+  p50ScenarioDuration?: number;
+  p90ScenarioDuration?: number;
+  p95ScenarioDuration?: number;
+  p99ScenarioDuration?: number;
+  avgStepDuration?: number;
+  totalExecutionTime?: number;
+  avgResponseTime?: number;
+  avgPageLoadTime?: number;
+  slowestScenarios?: Array<{ name: string; duration: number }>;
+  slowestSteps?: Array<{ text: string; duration: number }>;
 }
 
 /**

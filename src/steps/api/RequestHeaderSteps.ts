@@ -4,8 +4,6 @@ import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { APIContext } from '../../api/context/APIContext';
 import { ActionLogger } from '../../core/logging/ActionLogger';
-import { ValidationUtils } from '../../core/utils/ValidationUtils';
-import { StringUtils } from '../../core/utils/StringUtils';
 
 /**
  * Step definitions for managing API request headers
@@ -19,7 +17,8 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request header {string} to {string}")
     async setRequestHeader(headerName: string, headerValue: string): Promise<void> {
-        ActionLogger.logAPIAction('setRequestHeader', { headerName, headerValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestHeader', { headerName, headerValue });
         
         try {
             const currentContext = this.getAPIContext();
@@ -37,15 +36,15 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
             
             currentContext.setHeader(headerName, interpolatedValue);
             
-            ActionLogger.logAPIAction('requestHeaderSet', { 
+            await actionLogger.logAction('requestHeaderSet', { 
                 headerName,
                 originalValue: headerValue,
                 interpolatedValue: interpolatedValue,
                 isDefault: false
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set request header', error);
-            throw new Error(`Failed to set request header '${headerName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request header' });
+            throw new Error(`Failed to set request header '${headerName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -57,7 +56,8 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request headers:")
     async setRequestHeaders(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setRequestHeaders', { headers: dataTable });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestHeaders', { headers: dataTable });
         
         try {
             const currentContext = this.getAPIContext();
@@ -84,13 +84,13 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
                 currentContext.setHeader(headerName, interpolatedValue);
             }
             
-            ActionLogger.logAPIAction('requestHeadersSet', { 
+            await actionLogger.logAction('requestHeadersSet', { 
                 headers: headers,
                 count: Object.keys(headers).length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set request headers', error);
-            throw new Error(`Failed to set request headers: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request headers' });
+            throw new Error(`Failed to set request headers: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -100,17 +100,18 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user removes request header {string}")
     async removeRequestHeader(headerName: string): Promise<void> {
-        ActionLogger.logAPIAction('removeRequestHeader', { headerName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('removeRequestHeader', { headerName });
         
         try {
             const currentContext = this.getAPIContext();
             
             currentContext.removeHeader(headerName);
             
-            ActionLogger.logAPIAction('requestHeaderRemoved', { headerName });
+            await actionLogger.logAction('requestHeaderRemoved', { headerName });
         } catch (error) {
-            ActionLogger.logError('Failed to remove request header', error);
-            throw new Error(`Failed to remove request header '${headerName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to remove request header' });
+            throw new Error(`Failed to remove request header '${headerName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -120,16 +121,17 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears all request headers")
     async clearAllRequestHeaders(): Promise<void> {
-        ActionLogger.logAPIAction('clearRequestHeaders', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearRequestHeaders', {});
         
         try {
             const currentContext = this.getAPIContext();
             
             currentContext.clearHeaders();
             
-            ActionLogger.logAPIAction('requestHeadersCleared', {});
+            await actionLogger.logAction('requestHeadersCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear request headers', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to clear request headers' });
             throw error;
         }
     }
@@ -140,17 +142,18 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user accepts {string}")
     async setAcceptHeader(contentType: string): Promise<void> {
-        ActionLogger.logAPIAction('setAcceptHeader', { contentType });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setAcceptHeader', { contentType });
         
         try {
             const currentContext = this.getAPIContext();
             
             currentContext.setHeader('Accept', contentType);
             
-            ActionLogger.logAPIAction('acceptHeaderSet', { contentType });
+            await actionLogger.logAction('acceptHeaderSet', { contentType });
         } catch (error) {
-            ActionLogger.logError('Failed to set Accept header', error);
-            throw new Error(`Failed to set Accept header: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set Accept header' });
+            throw new Error(`Failed to set Accept header: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -160,17 +163,18 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets content type to {string}")
     async setContentTypeHeader(contentType: string): Promise<void> {
-        ActionLogger.logAPIAction('setContentType', { contentType });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setContentType', { contentType });
         
         try {
             const currentContext = this.getAPIContext();
             
             currentContext.setHeader('Content-Type', contentType);
             
-            ActionLogger.logAPIAction('contentTypeSet', { contentType });
+            await actionLogger.logAction('contentTypeSet', { contentType });
         } catch (error) {
-            ActionLogger.logError('Failed to set Content-Type header', error);
-            throw new Error(`Failed to set Content-Type header: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set Content-Type header' });
+            throw new Error(`Failed to set Content-Type header: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -180,7 +184,8 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets default header {string} to {string}")
     async setDefaultHeader(headerName: string, headerValue: string): Promise<void> {
-        ActionLogger.logAPIAction('setDefaultHeader', { headerName, headerValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setDefaultHeader', { headerName, headerValue });
         
         try {
             const currentContext = this.getAPIContext();
@@ -191,17 +196,20 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
             // Interpolate value
             const interpolatedValue = await this.interpolateValue(headerValue);
             
-            currentContext.setDefaultHeader(headerName, interpolatedValue);
+            // Store as default header in context variables
+            const defaultHeaders = currentContext.getVariable('defaultHeaders') || {};
+            defaultHeaders[headerName] = interpolatedValue;
+            currentContext.setVariable('defaultHeaders', defaultHeaders);
             
-            ActionLogger.logAPIAction('defaultHeaderSet', { 
+            await actionLogger.logAction('defaultHeaderSet', { 
                 headerName,
                 originalValue: headerValue,
                 interpolatedValue: interpolatedValue,
                 isDefault: true
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set default header', error);
-            throw new Error(`Failed to set default header '${headerName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set default header' });
+            throw new Error(`Failed to set default header '${headerName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -211,17 +219,21 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user removes default header {string}")
     async removeDefaultHeader(headerName: string): Promise<void> {
-        ActionLogger.logAPIAction('removeDefaultHeader', { headerName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('removeDefaultHeader', { headerName });
         
         try {
             const currentContext = this.getAPIContext();
             
-            currentContext.removeDefaultHeader(headerName);
+            // Remove from default headers in context variables
+            const defaultHeaders = currentContext.getVariable('defaultHeaders') || {};
+            delete defaultHeaders[headerName];
+            currentContext.setVariable('defaultHeaders', defaultHeaders);
             
-            ActionLogger.logAPIAction('defaultHeaderRemoved', { headerName });
+            await actionLogger.logAction('defaultHeaderRemoved', { headerName });
         } catch (error) {
-            ActionLogger.logError('Failed to remove default header', error);
-            throw new Error(`Failed to remove default header '${headerName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to remove default header' });
+            throw new Error(`Failed to remove default header '${headerName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -237,7 +249,8 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets headers from JSON:")
     async setHeadersFromJSON(jsonString: string): Promise<void> {
-        ActionLogger.logAPIAction('setHeadersFromJSON', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setHeadersFromJSON', {});
         
         try {
             const currentContext = this.getAPIContext();
@@ -247,7 +260,7 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
             try {
                 headers = JSON.parse(jsonString);
             } catch (error) {
-                throw new Error(`Invalid JSON format: ${error.message}`);
+                throw new Error(`Invalid JSON format: ${error instanceof Error ? error.message : String(error)}`);
             }
             
             // Validate and set headers
@@ -260,13 +273,13 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
                 currentContext.setHeader(headerName, interpolatedValue);
             }
             
-            ActionLogger.logAPIAction('headersSetFromJSON', { 
+            await actionLogger.logAction('headersSetFromJSON', { 
                 count: Object.keys(headers).length,
                 headers: headers
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set headers from JSON', error);
-            throw new Error(`Failed to set headers from JSON: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set headers from JSON' });
+            throw new Error(`Failed to set headers from JSON: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -276,11 +289,12 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user copies response headers from {string}")
     async copyResponseHeaders(responseAlias: string): Promise<void> {
-        ActionLogger.logAPIAction('copyResponseHeaders', { responseAlias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('copyResponseHeaders', { responseAlias });
         
         try {
             const currentContext = this.getAPIContext();
-            const storedResponse = this.context.getStoredResponse(responseAlias);
+            const storedResponse = this.retrieve(`response_${responseAlias}`);
             
             if (!storedResponse) {
                 throw new Error(`No response found with alias '${responseAlias}'`);
@@ -302,14 +316,14 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
                 copiedCount++;
             }
             
-            ActionLogger.logAPIAction('responseHeadersCopied', { 
+            await actionLogger.logAction('responseHeadersCopied', { 
                 responseAlias,
                 copiedCount,
                 skippedHeaders: Object.keys(storedResponse.headers).length - copiedCount
             });
         } catch (error) {
-            ActionLogger.logError('Failed to copy response headers', error);
-            throw new Error(`Failed to copy response headers from '${responseAlias}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to copy response headers' });
+            throw new Error(`Failed to copy response headers from '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -319,7 +333,8 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets header {string} to base64 encoded {string}")
     async setBase64EncodedHeader(headerName: string, value: string): Promise<void> {
-        ActionLogger.logAPIAction('setBase64Header', { headerName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setBase64Header', { headerName });
         
         try {
             const currentContext = this.getAPIContext();
@@ -332,14 +347,14 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
             
             currentContext.setHeader(headerName, encodedValue);
             
-            ActionLogger.logAPIAction('base64HeaderSet', { 
+            await actionLogger.logAction('base64HeaderSet', { 
                 headerName,
                 originalLength: interpolatedValue.length,
                 encodedLength: encodedValue.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set base64 encoded header', error);
-            throw new Error(`Failed to set base64 encoded header '${headerName}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set base64 encoded header' });
+            throw new Error(`Failed to set base64 encoded header '${headerName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -347,7 +362,7 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
      * Helper method to get current API context
      */
     private getAPIContext(): APIContext {
-        const context = this.context.get('currentAPIContext') as APIContext;
+        const context = this.retrieve('currentAPIContext') as APIContext;
         if (!context) {
             throw new Error('No API context set. Please use "Given user is working with <api> API" first');
         }
@@ -376,7 +391,7 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
         ];
         
         if (restrictedHeaders.some(h => h.toLowerCase() === headerName.toLowerCase())) {
-            ActionLogger.logWarning(`Setting restricted header '${headerName}' may be overridden by the HTTP client`);
+            ActionLogger.logWarn(`Setting restricted header '${headerName}' may be overridden by the HTTP client`);
         }
     }
 
@@ -406,12 +421,12 @@ export class RequestHeaderSteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        const variables = this.context.getAllVariables();
+        // Simple placeholder replacement for common variables
         let interpolated = value;
-        
-        for (const [key, val] of Object.entries(variables)) {
-            interpolated = interpolated.replace(new RegExp(`{{${key}}}`, 'g'), String(val));
-        }
+        interpolated = interpolated.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+            const varValue = this.retrieve(varName);
+            return varValue !== undefined ? String(varValue) : match;
+        });
         
         return interpolated;
     }

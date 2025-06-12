@@ -16,9 +16,7 @@ import {
   LongTask,
   UserTiming,
   CustomMetric,
-  CollectorOptions,
-  Evidence,
-  EvidenceType
+  CollectorOptions
 } from '../types/reporting.types';
 
 // Define trace-specific types
@@ -81,6 +79,11 @@ export interface TraceCollectorOptions extends CollectorOptions {
   cpuProfile?: boolean;
   coverage?: boolean;
   memoryDump?: boolean;
+  includeCoverage?: boolean;
+  includeMemory?: boolean;
+  includeCPUProfile?: boolean;
+  customMetrics?: boolean;
+  compressTraces?: boolean;
 }
 
 export interface TracingStartOptions {
@@ -89,9 +92,21 @@ export interface TracingStartOptions {
   transferMode?: 'ReturnAsStream' | 'ReportEvents';
   streamFormat?: 'json' | 'proto';
   streamCompression?: 'none' | 'gzip';
-  traceConfig?: any;
+  traceConfig?: TraceConfig;
   perfettoConfig?: any;
   tracingBackend?: string;
+  screenshots?: boolean;
+}
+
+export interface TraceConfig {
+  recordMode?: string;
+  enableSampling?: boolean;
+  enableSystrace?: boolean;
+  enableArgumentFilter?: boolean;
+  includedCategories?: string[];
+  excludedCategories?: string[];
+  syntheticDelays?: any[];
+  memoryDumpConfig?: any;
 }
 
 export interface CPUProfile {
@@ -108,8 +123,18 @@ export interface MemorySnapshot {
 }
 
 export interface CoverageData {
-  js: any[];
-  css: any[];
+  js: {
+    total: number;
+    used: number;
+    percentage: number;
+    files: any[];
+  };
+  css: {
+    total: number;
+    used: number;
+    percentage: number;
+    files: any[];
+  };
 }
 
 const gzipAsync = promisify(zlib.gzip);
@@ -120,6 +145,14 @@ interface TraceData {
   metadata?: any;
   startTime?: number;
   endTime?: number;
+  scenarioId?: string;
+  scenarioName?: string;
+  screenshots?: Array<{
+    timestamp: number;
+    snapshot: any;
+    stepId?: string;
+  }>;
+  metrics?: TraceMetrics;
   [key: string]: any;
 }
 
@@ -129,7 +162,7 @@ export class TraceCollector {
   private traces: Map<string, TraceData> = new Map();
   private cdpSessions: Map<string, CDPSession> = new Map();
   private tracingStarted: Map<string, boolean> = new Map();
-  private options: TraceCollectorOptions;
+  private options: TraceCollectorOptions = {} as TraceCollectorOptions;
   private customMetrics: Map<string, CustomMetric[]> = new Map();
   private userTimings: Map<string, UserTiming[]> = new Map();
   private coverageData: Map<string, CoverageData> = new Map();
@@ -167,7 +200,7 @@ export class TraceCollector {
     };
 
     this.evidencePath = path.join('./evidence', executionId, 'traces');
-    await FileUtils.ensureDirectory(this.evidencePath);
+    await FileUtils.ensureDir(this.evidencePath);
 
     this.traces.clear();
     this.cdpSessions.clear();
@@ -178,7 +211,7 @@ export class TraceCollector {
     this.currentSteps.clear();
     this.stepTraces.clear();
 
-    ActionLogger.info('TraceCollector initialized', {
+    ActionLogger.logInfo('TraceCollector initialized', {
       executionId,
       options: this.options
     });
@@ -190,7 +223,7 @@ export class TraceCollector {
     page: Page
   ): Promise<void> {
     const scenarioPath = path.join(this.evidencePath, scenarioId);
-    await FileUtils.ensureDirectory(scenarioPath);
+    await FileUtils.ensureDir(scenarioPath);
 
     try {
       // Create CDP session
@@ -227,16 +260,13 @@ export class TraceCollector {
         await this.startCoverageCollection(page, scenarioId);
       }
 
-      ActionLogger.info(`Trace collection started for scenario: ${scenarioName}`, {
+      ActionLogger.logInfo(`Trace collection started for scenario: ${scenarioName}`, {
         scenarioId,
         categories: this.options.categories
       });
 
     } catch (error) {
-      ActionLogger.error('Error starting trace collection', error as Error, {
-        scenarioId,
-        scenarioName
-      });
+      ActionLogger.logError('Error starting trace collection', error as Error);
     }
   }
 
@@ -279,7 +309,7 @@ export class TraceCollector {
     await this.endStep(scenarioId, stepId);
 
     const stepPath = path.join(this.evidencePath, scenarioId, 'steps', stepId);
-    await FileUtils.ensureDirectory(stepPath);
+    await FileUtils.ensureDir(stepPath);
 
     const evidenceFiles: string[] = [];
 
@@ -333,7 +363,7 @@ export class TraceCollector {
         evidenceFiles.push(metricsPath);
       }
 
-      ActionLogger.info(`Trace evidence collected for step: ${stepText}`, {
+      ActionLogger.logInfo(`Trace evidence collected for step: ${stepText}`, {
         scenarioId,
         stepId,
         eventsCount: stepEvents.length,
@@ -341,10 +371,7 @@ export class TraceCollector {
       });
 
     } catch (error) {
-      ActionLogger.error('Error collecting trace evidence for step', error as Error, {
-        scenarioId,
-        stepId
-      });
+      ActionLogger.logError('Error collecting trace evidence for step', error as Error);
     }
 
     return evidenceFiles;
@@ -396,7 +423,7 @@ export class TraceCollector {
 
   private async startTracing(client: CDPSession, scenarioId: string): Promise<void> {
     const tracingOptions: TracingStartOptions = {
-      categories: this.options.categories.join(','),
+      categories: this.options.categories || [],
       options: 'sampling-frequency=10000'  // 10kHz sampling
     };
 
@@ -411,7 +438,7 @@ export class TraceCollector {
         enableSampling: true,
         enableSystrace: true,
         enableArgumentFilter: false,
-        includedCategories: this.options.categories,
+        includedCategories: this.options.categories || [],
         excludedCategories: [],
         syntheticDelays: [],
         ...(this.options.includeMemory ? {
@@ -421,7 +448,7 @@ export class TraceCollector {
             ]
           }
         } : {})
-      },
+      } as any,
       streamFormat: 'json',
       streamCompression: 'none',
       bufferUsageReportingInterval: 1000
@@ -435,7 +462,7 @@ export class TraceCollector {
     });
 
     client.on('Tracing.tracingComplete', (params) => {
-      ActionLogger.info('Tracing complete', {
+      ActionLogger.logInfo('Tracing complete', {
         scenarioId,
         streamHandle: params.stream
       });
@@ -443,7 +470,7 @@ export class TraceCollector {
 
     client.on('Tracing.bufferUsage', (params) => {
       if (params.percentFull && params.percentFull > 90) {
-        ActionLogger.warn('Trace buffer nearly full', {
+        ActionLogger.logWarn('Trace buffer nearly full', {
           scenarioId,
           percentFull: params.percentFull
         });
@@ -480,115 +507,147 @@ export class TraceCollector {
         if (currentStep) {
           screenshotData.stepId = currentStep;
         }
-        traceData.screenshots.push(screenshotData);
+        if (traceData.screenshots) {
+          traceData.screenshots.push(screenshotData);
+        } else {
+          traceData.screenshots = [screenshotData];
+        }
       }
 
       // Update metrics based on events
-      this.updateMetricsFromEvent(traceData.metrics, event);
+      if (traceData.metrics) {
+        this.updateMetricsFromEvent(traceData.metrics, event);
+      }
     }
   }
 
   private updateMetricsFromEvent(metrics: TraceMetrics, event: TraceEvent): void {
     // Frame metrics
     if (event.name === 'DrawFrame') {
-      metrics.frames.total++;
-      
-      const duration = event.dur || 0;
-      if (duration > 16666) { // Longer than 16.66ms (60fps)
-        metrics.frames.dropped++;
+      if (metrics['frames']) {
+        (metrics['frames'] as any).total++;
+        
+        const duration = event.dur || 0;
+        if (duration > 16666) { // Longer than 16.66ms (60fps)
+          (metrics['frames'] as any).dropped++;
+        }
       }
     }
 
     // Long tasks (>50ms)
     if (event.name === 'RunTask' && event.dur && event.dur > 50000) {
-      metrics.longTasks.push({
-        startTime: event.ts,
-        duration: event.dur / 1000, // Convert to ms
-        scriptUrl: event.args?.data?.scriptName || 'unknown',
-        functionName: event.args?.data?.functionName || 'anonymous'
-      });
+      if (metrics.longTasks) {
+        metrics.longTasks.push({
+          name: 'RunTask',
+          entryType: 'longtask',
+          startTime: event.ts || 0,
+          duration: event.dur / 1000, // Convert to ms
+          attribution: [{
+            name: event.args?.data?.functionName || 'anonymous',
+            entryType: 'script',
+            startTime: event.ts || 0,
+            duration: event.dur / 1000,
+            containerType: 'window',
+            containerSrc: event.args?.data?.scriptName || 'unknown',
+            containerId: '',
+            containerName: ''
+          }]
+        });
+      }
     }
 
     // Layout shifts
-    if (event.name === 'LayoutShift' && event.args) {
+    if (event.name === 'LayoutShift' && event.args && metrics.layoutShifts) {
       const shift: LayoutShift = {
-        startTime: event.ts,
-        value: event.args.data?.score || 0,
+        score: event.args.data?.score || 0,
         sources: event.args.data?.sources || [],
-        hadRecentInput: event.args.data?.had_recent_input || false
+        timestamp: event.ts || 0
       };
       
       metrics.layoutShifts.push(shift);
       
-      if (!shift.hadRecentInput) {
-        metrics.cumulativeLayoutShift += shift.value;
+      if (!event.args.data?.['hadRecentInput']) {
+        const currentCLS = metrics['cumulativeLayoutShift'] || 0;
+        (metrics as any)['cumulativeLayoutShift'] = currentCLS + shift.score;
       }
     }
 
     // Parse events
     if (event.name === 'ParseHTML' && event.dur) {
-      metrics.parseTime += event.dur / 1000;
+      const currentParseTime = metrics['parseTime'] || 0;
+      (metrics as any)['parseTime'] = currentParseTime + (event.dur / 1000);
     }
 
     // Script execution
     if (event.name === 'EvaluateScript' && event.dur) {
-      metrics.scriptTime += event.dur / 1000;
+      const currentScriptTime = metrics['scriptTime'] || 0;
+      (metrics as any)['scriptTime'] = currentScriptTime + (event.dur / 1000);
     }
 
     // Layout time
     if (event.name === 'Layout' && event.dur) {
-      metrics.layoutTime += event.dur / 1000;
-      metrics.layoutCount++;
+      const currentLayoutTime = metrics['layoutTime'] || 0;
+      const currentLayoutCount = metrics['layoutCount'] || 0;
+      (metrics as any)['layoutTime'] = currentLayoutTime + (event.dur / 1000);
+      (metrics as any)['layoutCount'] = currentLayoutCount + 1;
     }
 
     // Paint time
     if (event.name === 'Paint' && event.dur) {
-      metrics.paintTime += event.dur / 1000;
-      metrics.paintCount++;
+      const currentPaintTime = metrics['paintTime'] || 0;
+      const currentPaintCount = metrics['paintCount'] || 0;
+      (metrics as any)['paintTime'] = currentPaintTime + (event.dur / 1000);
+      (metrics as any)['paintCount'] = currentPaintCount + 1;
     }
 
     // Style recalculation
     if (event.name === 'UpdateLayoutTree' && event.dur) {
-      metrics.styleTime += event.dur / 1000;
-      metrics.styleCount++;
+      const currentStyleTime = metrics['styleTime'] || 0;
+      const currentStyleCount = metrics['styleCount'] || 0;
+      (metrics as any)['styleTime'] = currentStyleTime + (event.dur / 1000);
+      (metrics as any)['styleCount'] = currentStyleCount + 1;
     }
 
     // First paint markers
-    if (event.name === 'firstPaint' && !metrics.firstPaint) {
-      metrics.firstPaint = event.ts;
+    if (event.name === 'firstPaint' && !metrics['firstPaint']) {
+      (metrics as any)['firstPaint'] = event.ts;
     }
 
-    if (event.name === 'firstContentfulPaint' && !metrics.firstContentfulPaint) {
-      metrics.firstContentfulPaint = event.ts;
+    if (event.name === 'firstContentfulPaint' && !metrics['firstContentfulPaint']) {
+      (metrics as any)['firstContentfulPaint'] = event.ts;
     }
 
     // Largest contentful paint
     if (event.name === 'largestContentfulPaint::Candidate') {
-      metrics.largestContentfulPaint = event.ts;
-      metrics.largestContentfulPaintSize = event.args?.data?.size || 0;
+      (metrics as any)['largestContentfulPaint'] = event.ts;
+      (metrics as any)['largestContentfulPaintSize'] = event.args?.data?.size || 0;
     }
 
     // User interactions
     if (event.name === 'EventDispatch') {
       const eventType = event.args?.data?.type;
       if (['click', 'tap', 'keydown', 'keyup'].includes(eventType)) {
-        metrics.userInteractions++;
+        const currentInteractions = metrics['userInteractions'] || 0;
+        (metrics as any)['userInteractions'] = currentInteractions + 1;
       }
     }
 
     // Resource timing
     if (event.name === 'ResourceSendRequest') {
-      metrics.totalResources++;
+      const currentResources = metrics['totalResources'] || 0;
+      (metrics as any)['totalResources'] = currentResources + 1;
     }
 
     // JavaScript heap
     if (event.name === 'UpdateCounters' && event.args?.data?.jsHeapSizeUsed) {
-      metrics.jsHeapUsed = Math.max(metrics.jsHeapUsed, event.args.data.jsHeapSizeUsed);
+      const currentHeapUsed = metrics['jsHeapUsed'] || 0;
+      (metrics as any)['jsHeapUsed'] = Math.max(currentHeapUsed, event.args.data.jsHeapSizeUsed);
     }
 
     // DOM nodes
     if (event.name === 'UpdateCounters' && event.args?.data?.nodes) {
-      metrics.domNodes = Math.max(metrics.domNodes, event.args.data.nodes);
+      const currentDomNodes = metrics['domNodes'] || 0;
+      (metrics as any)['domNodes'] = Math.max(currentDomNodes, event.args.data.nodes);
     }
   }
 
@@ -626,17 +685,17 @@ export class TraceCollector {
               domInteractive: navigation.domInteractive,
               domComplete: navigation.domComplete
             } : null,
-            paint: paint.map(p => ({
+            paint: paint.map((p: any) => ({
               name: p.name,
               startTime: p.startTime
             })),
             userTimings: {
-              measures: measures.map(m => ({
+              measures: measures.map((m: any) => ({
                 name: m.name,
                 startTime: m.startTime,
                 duration: m.duration
               })),
-              marks: marks.map(m => ({
+              marks: marks.map((m: any) => ({
                 name: m.name,
                 startTime: m.startTime
               }))
@@ -655,21 +714,21 @@ export class TraceCollector {
           
           (metrics.userTimings.measures as any[]).forEach((measure: any) => {
             timings.push({
-              type: 'measure',
               name: measure.name,
+              entryType: 'measure',
               startTime: measure.startTime,
               duration: measure.duration,
-              timestamp: Date.now()
+              detail: { timestamp: Date.now() }
             });
           });
 
           (metrics.userTimings.marks as any[]).forEach((mark: any) => {
             timings.push({
-              type: 'mark',
               name: mark.name,
+              entryType: 'mark',
               startTime: mark.startTime,
               duration: 0,
-              timestamp: Date.now()
+              detail: { timestamp: Date.now() }
             });
           });
 
@@ -710,9 +769,9 @@ export class TraceCollector {
       // Start CSS coverage
       await page.coverage.startCSSCoverage();
 
-      ActionLogger.info('Coverage collection started', { scenarioId });
+      ActionLogger.logInfo('Coverage collection started', { scenarioId });
     } catch (error) {
-      ActionLogger.error('Error starting coverage collection', error as Error, { scenarioId });
+      ActionLogger.logError('Error starting coverage collection', error as Error);
     }
   }
 
@@ -735,10 +794,10 @@ export class TraceCollector {
     // Find step boundaries
     for (const event of traceData.events) {
       if (event.name === 'TimeStamp' && event.args?.data?.message?.includes(startMarker)) {
-        startTime = event.ts;
+        startTime = event.ts ?? 0;
       }
       if (event.name === 'TimeStamp' && event.args?.data?.message?.includes(endMarker)) {
-        endTime = event.ts;
+        endTime = event.ts ?? 0;
         break;
       }
     }
@@ -746,7 +805,7 @@ export class TraceCollector {
     if (startTime && endTime) {
       // Extract events within step boundaries
       const boundedEvents = traceData.events.filter(event => 
-        event.ts >= startTime! && event.ts <= endTime!
+        (event.ts ?? 0) >= startTime! && (event.ts ?? 0) <= endTime!
       );
       
       // Merge with tracked events
@@ -757,7 +816,7 @@ export class TraceCollector {
         new Map(allEvents.map(e => [`${e.ts}-${e.name}`, e])).values()
       );
       
-      return uniqueEvents.sort((a, b) => a.ts - b.ts);
+      return uniqueEvents.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
     }
 
     return stepEvents;
@@ -777,8 +836,8 @@ export class TraceCollector {
 
     if (events.length === 0) return metrics;
 
-    const startTime = Math.min(...events.map(e => e.ts));
-    const endTime = Math.max(...events.map(e => e.ts + (e.dur || 0)));
+    const startTime = Math.min(...events.map(e => e.ts ?? 0));
+    const endTime = Math.max(...events.map(e => (e.ts ?? 0) + (e.dur || 0)));
     metrics.duration = (endTime - startTime) / 1000; // Convert to ms
 
     let busyTime = 0;
@@ -787,19 +846,19 @@ export class TraceCollector {
       const duration = event.dur ? event.dur / 1000 : 0;
 
       // Script execution
-      if (['EvaluateScript', 'FunctionCall', 'RunMicrotasks'].includes(event.name)) {
+      if (['EvaluateScript', 'FunctionCall', 'RunMicrotasks'].includes(event.name ?? '')) {
         metrics.scriptTime += duration;
         busyTime += duration;
       }
 
       // Layout
-      if (['Layout', 'UpdateLayoutTree', 'InvalidateLayout'].includes(event.name)) {
+      if (['Layout', 'UpdateLayoutTree', 'InvalidateLayout'].includes(event.name ?? '')) {
         metrics.layoutTime += duration;
         busyTime += duration;
       }
 
       // Paint
-      if (['Paint', 'PaintImage', 'Rasterize'].includes(event.name)) {
+      if (['Paint', 'PaintImage', 'Rasterize'].includes(event.name ?? '')) {
         metrics.paintTime += duration;
         busyTime += duration;
       }
@@ -807,10 +866,20 @@ export class TraceCollector {
       // Long tasks
       if (event.name === 'RunTask' && duration > 50) {
         metrics.longTasks.push({
-          startTime: event.ts,
+          name: 'RunTask',
+          entryType: 'longtask',
+          startTime: event.ts ?? 0,
           duration,
-          scriptUrl: event.args?.data?.scriptName || 'unknown',
-          functionName: event.args?.data?.functionName || 'anonymous'
+          attribution: [{
+            name: event.args?.data?.functionName || 'anonymous',
+            entryType: 'script',
+            startTime: event.ts ?? 0,
+            duration,
+            containerType: 'window',
+            containerSrc: event.args?.data?.scriptName || 'unknown',
+            containerId: '',
+            containerName: ''
+          }]
         });
       }
 
@@ -831,6 +900,12 @@ export class TraceCollector {
   private async analyzeStepPerformance(events: TraceEvent[]): Promise<TraceAnalysis> {
     const analysis: TraceAnalysis = {
       summary: {
+        duration: 0,
+        eventCount: 0,
+        processes: 0,
+        threads: 0,
+        screenshots: 0,
+        frames: 0,
         totalTime: 0,
         scriptingTime: 0,
         renderingTime: 0,
@@ -838,28 +913,31 @@ export class TraceCollector {
         idleTime: 0,
         longTaskTime: 0
       },
-      longTasks: [],
-      layoutShifts: [],
-      frameMetrics: {
-        total: 0,
-        dropped: 0,
-        fps: 0,
-        jank: 0
+      metrics: {
+        longTasks: [],
+        layoutShifts: [],
+        frameMetrics: {
+          total: 0,
+          dropped: 0,
+          fps: 0,
+          jank: 0
+        },
+        memoryMetrics: {
+          peakJSHeapSize: 0,
+          averageJSHeapSize: 0,
+          totalAllocated: 0,
+          totalFreed: 0
+        },
+        recommendations: []
       },
-      memoryMetrics: {
-        peakJSHeapSize: 0,
-        averageJSHeapSize: 0,
-        totalAllocated: 0,
-        totalFreed: 0
-      },
-      recommendations: []
+      performance: {}
     };
 
     if (events.length === 0) return analysis;
 
-    const startTime = Math.min(...events.map(e => e.ts));
-    const endTime = Math.max(...events.map(e => e.ts + (e.dur || 0)));
-    analysis.summary.totalTime = (endTime - startTime) / 1000;
+    const startTime = Math.min(...events.map(e => e.ts ?? 0));
+    const endTime = Math.max(...events.map(e => (e.ts ?? 0) + (e.dur || 0)));
+    (analysis.summary as any).totalTime = (endTime - startTime) / 1000;
 
     // Categorize time spent
     const timeByCategory = new Map<string, number>();
@@ -875,34 +953,48 @@ export class TraceCollector {
       // Long tasks
       if (event.name === 'RunTask' && duration > 50) {
         const longTask: LongTask = {
-          startTime: event.ts,
+          name: 'RunTask',
+          entryType: 'longtask',
+          startTime: event.ts ?? 0,
           duration,
-          scriptUrl: event.args?.data?.scriptName || 'unknown',
-          functionName: event.args?.data?.functionName || 'anonymous',
-          attribution: this.getTaskAttribution(event)
+          attribution: [{
+            name: event.args?.data?.functionName || 'anonymous',
+            entryType: 'script',
+            startTime: event.ts ?? 0,
+            duration,
+            containerType: 'window',
+            containerSrc: event.args?.data?.scriptName || 'unknown',
+            containerId: '',
+            containerName: ''
+          }]
         };
-        analysis.longTasks.push(longTask);
-        analysis.summary.longTaskTime += duration;
+        const longTasks = (analysis.metrics as any).longTasks || [];
+        longTasks.push(longTask);
+        (analysis.metrics as any).longTasks = longTasks;
+        (analysis.summary as any).longTaskTime += duration;
       }
 
       // Layout shifts
       if (event.name === 'LayoutShift' && event.args?.data) {
-        analysis.layoutShifts.push({
-          startTime: event.ts,
-          value: event.args.data.score || 0,
+        const layoutShifts = (analysis.metrics as any).layoutShifts || [];
+        layoutShifts.push({
+          score: event.args.data.score || 0,
           sources: event.args.data.sources || [],
-          hadRecentInput: event.args.data.had_recent_input || false
+          timestamp: event.ts ?? 0
         });
+        (analysis.metrics as any).layoutShifts = layoutShifts;
       }
 
       // Frame metrics
       if (event.name === 'DrawFrame') {
-        analysis.frameMetrics.total++;
+        const frameMetrics = (analysis.metrics as any).frameMetrics || { total: 0, dropped: 0 };
+        frameMetrics.total++;
         frameDurations.push(duration);
         
         if (duration > 16.66) {
-          analysis.frameMetrics.dropped++;
+          frameMetrics.dropped++;
         }
+        (analysis.metrics as any).frameMetrics = frameMetrics;
       }
 
       // Memory metrics
@@ -912,33 +1004,37 @@ export class TraceCollector {
     }
 
     // Calculate summary times
-    analysis.summary.scriptingTime = timeByCategory.get('scripting') || 0;
-    analysis.summary.renderingTime = timeByCategory.get('rendering') || 0;
-    analysis.summary.paintingTime = timeByCategory.get('painting') || 0;
-    analysis.summary.idleTime = Math.max(0, 
-      analysis.summary.totalTime - 
-      analysis.summary.scriptingTime - 
-      analysis.summary.renderingTime - 
-      analysis.summary.paintingTime
+    (analysis.summary as any).scriptingTime = timeByCategory.get('scripting') || 0;
+    (analysis.summary as any).renderingTime = timeByCategory.get('rendering') || 0;
+    (analysis.summary as any).paintingTime = timeByCategory.get('painting') || 0;
+    (analysis.summary as any).idleTime = Math.max(0, 
+      (analysis.summary as any).totalTime - 
+      (analysis.summary as any).scriptingTime - 
+      (analysis.summary as any).renderingTime - 
+      (analysis.summary as any).paintingTime
     );
 
     // Calculate frame metrics
     if (frameDurations.length > 0) {
       const avgFrameDuration = frameDurations.reduce((a, b) => a + b, 0) / frameDurations.length;
-      analysis.frameMetrics.fps = 1000 / avgFrameDuration;
+      const frameMetrics = (analysis.metrics as any).frameMetrics || {};
+      frameMetrics.fps = 1000 / avgFrameDuration;
       
       // Calculate jank (frame time variance)
       const variance = frameDurations.reduce((sum, duration) => {
         return sum + Math.pow(duration - avgFrameDuration, 2);
       }, 0) / frameDurations.length;
-      analysis.frameMetrics.jank = Math.sqrt(variance);
+      frameMetrics.jank = Math.sqrt(variance);
+      (analysis.metrics as any).frameMetrics = frameMetrics;
     }
 
     // Calculate memory metrics
     if (memorySnapshots.length > 0) {
-      analysis.memoryMetrics.peakJSHeapSize = Math.max(...memorySnapshots);
-      analysis.memoryMetrics.averageJSHeapSize = 
+      const memoryMetrics = (analysis.metrics as any).memoryMetrics || {};
+      memoryMetrics.peakJSHeapSize = Math.max(...memorySnapshots);
+      memoryMetrics.averageJSHeapSize = 
         memorySnapshots.reduce((a, b) => a + b, 0) / memorySnapshots.length;
+      (analysis.metrics as any).memoryMetrics = memoryMetrics;
     }
 
     // Generate recommendations
@@ -963,51 +1059,41 @@ export class TraceCollector {
       'GPUTask', 'DecodeImage', 'ResizeImage'
     ];
 
-    if (scriptingEvents.includes(event.name)) return 'scripting';
-    if (renderingEvents.includes(event.name)) return 'rendering';
-    if (paintingEvents.includes(event.name)) return 'painting';
+    if (scriptingEvents.includes(event.name ?? '')) return 'scripting';
+    if (renderingEvents.includes(event.name ?? '')) return 'rendering';
+    if (paintingEvents.includes(event.name ?? '')) return 'painting';
     
     return 'other';
   }
 
-  private getTaskAttribution(event: TraceEvent): string {
-    if (event.args?.data?.scriptName) {
-      return `Script: ${event.args.data.scriptName}`;
-    }
-    
-    if (event.args?.data?.functionName) {
-      return `Function: ${event.args.data.functionName}`;
-    }
-    
-    if (event.args?.data?.url) {
-      return `URL: ${event.args.data.url}`;
-    }
-    
-    return 'Unknown source';
-  }
 
   private generatePerformanceRecommendations(analysis: TraceAnalysis): void {
     // Long task recommendations
-    if (analysis.longTasks.length > 0) {
-      const totalLongTaskTime = analysis.longTasks.reduce((sum, task) => sum + task.duration, 0);
-      const percentage = (totalLongTaskTime / analysis.summary.totalTime) * 100;
+    const longTasks = (analysis.metrics as any)?.longTasks || [];
+    if (longTasks.length > 0) {
+      const totalLongTaskTime = longTasks.reduce((sum: number, task: any) => sum + task.duration, 0);
+      const percentage = (totalLongTaskTime / ((analysis.summary as any).totalTime || 1)) * 100;
       
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
         severity: percentage > 25 ? 'high' : 'medium',
         title: 'Long JavaScript tasks detected',
-        description: `${analysis.longTasks.length} tasks took longer than 50ms, blocking the main thread for ${totalLongTaskTime.toFixed(0)}ms (${percentage.toFixed(1)}% of total time)`,
+        description: `${longTasks.length} tasks took longer than 50ms, blocking the main thread for ${totalLongTaskTime.toFixed(0)}ms (${percentage.toFixed(1)}% of total time)`,
         impact: 'Long tasks block user interactions and make the page feel unresponsive',
         solution: 'Break up long tasks, use web workers, or defer non-critical work'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
 
     // Layout shift recommendations
-    const unstableShifts = analysis.layoutShifts.filter(shift => !shift.hadRecentInput);
+    const layoutShifts = (analysis.metrics as any)?.layoutShifts || [];
+    const unstableShifts = layoutShifts.filter((shift: any) => !shift.hadRecentInput);
     if (unstableShifts.length > 0) {
-      const totalShift = unstableShifts.reduce((sum, shift) => sum + shift.value, 0);
+      const totalShift = unstableShifts.reduce((sum: number, shift: any) => sum + (shift.score || 0), 0);
       
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'stability',
         severity: totalShift > 0.1 ? 'high' : 'medium',
         title: 'Layout instability detected',
@@ -1015,26 +1101,33 @@ export class TraceCollector {
         impact: 'Unexpected layout shifts create a poor user experience',
         solution: 'Set explicit dimensions on images/videos, avoid inserting content above existing content'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
 
     // Frame rate recommendations
-    if (analysis.frameMetrics.fps < 60 && analysis.frameMetrics.total > 0) {
-      const dropRate = (analysis.frameMetrics.dropped / analysis.frameMetrics.total) * 100;
+    const frameMetrics = (analysis.metrics as any)?.frameMetrics;
+    if (frameMetrics && frameMetrics.fps < 60 && frameMetrics.total > 0) {
+      const dropRate = (frameMetrics.dropped / frameMetrics.total) * 100;
       
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
-        severity: analysis.frameMetrics.fps < 30 ? 'high' : 'medium',
+        severity: frameMetrics.fps < 30 ? 'high' : 'medium',
         title: 'Poor frame rate detected',
-        description: `Average FPS: ${analysis.frameMetrics.fps.toFixed(1)}, ${dropRate.toFixed(1)}% frames dropped`,
+        description: `Average FPS: ${frameMetrics.fps.toFixed(1)}, ${dropRate.toFixed(1)}% frames dropped`,
         impact: 'Low frame rates make animations and scrolling feel janky',
         solution: 'Optimize animations, reduce paint complexity, use CSS transforms'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
 
     // Scripting time recommendations
-    const scriptingPercentage = (analysis.summary.scriptingTime / analysis.summary.totalTime) * 100;
+    const scriptingTime = (analysis.summary as any).scriptingTime || 0;
+    const totalTime = (analysis.summary as any).totalTime || 1;
+    const scriptingPercentage = (scriptingTime / totalTime) * 100;
     if (scriptingPercentage > 50) {
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
         severity: 'high',
         title: 'Excessive JavaScript execution time',
@@ -1042,18 +1135,22 @@ export class TraceCollector {
         impact: 'Heavy JavaScript execution blocks rendering and user interactions',
         solution: 'Optimize algorithms, reduce bundle size, lazy load non-critical scripts'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
 
     // Memory recommendations
-    if (analysis.memoryMetrics.peakJSHeapSize > 100 * 1024 * 1024) { // 100MB
-      analysis.recommendations.push({
+    const memoryMetrics = (analysis.metrics as any)?.memoryMetrics;
+    if (memoryMetrics && memoryMetrics.peakJSHeapSize > 100 * 1024 * 1024) { // 100MB
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'memory',
         severity: 'medium',
         title: 'High memory usage detected',
-        description: `Peak JS heap size: ${(analysis.memoryMetrics.peakJSHeapSize / 1024 / 1024).toFixed(1)}MB`,
+        description: `Peak JS heap size: ${(memoryMetrics.peakJSHeapSize / 1024 / 1024).toFixed(1)}MB`,
         impact: 'High memory usage can cause performance issues and crashes on low-end devices',
         solution: 'Remove memory leaks, clear unused references, optimize data structures'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
   }
 
@@ -1088,8 +1185,8 @@ export class TraceCollector {
       let memoryInfo = null;
       if (this.options.includeMemory) {
         try {
-          const heap = await client.send('HeapProfiler.collectGarbage');
-          const sample = await client.send('HeapProfiler.getSamplingProfile');
+          await client.send('HeapProfiler.collectGarbage');
+          await client.send('HeapProfiler.getSamplingProfile');
           memoryInfo = {
             heapUsed: perfMetrics.metrics.find(m => m.name === 'JSHeapUsedSize')?.value || 0,
             heapTotal: perfMetrics.metrics.find(m => m.name === 'JSHeapTotalSize')?.value || 0,
@@ -1129,10 +1226,7 @@ export class TraceCollector {
         }
       };
     } catch (error) {
-      ActionLogger.error('Error capturing step metrics', error as Error, {
-        scenarioId,
-        stepId
-      });
+      ActionLogger.logError('Error capturing step metrics', error as Error);
       return null;
     }
   }
@@ -1167,6 +1261,12 @@ export class TraceCollector {
 
   async finalize(executionId: string): Promise<TraceSummary> {
     const summary: TraceSummary = {
+      duration: 0,
+      eventCount: 0,
+      processes: 0,
+      threads: 0,
+      screenshots: 0,
+      frames: 0,
       totalScenarios: this.traces.size,
       totalEvents: 0,
       totalDuration: 0,
@@ -1178,7 +1278,7 @@ export class TraceCollector {
     };
 
     // Process each scenario
-    for (const [scenarioId, traceData] of this.traces) {
+    for (const [scenarioId, traceData] of Array.from(this.traces.entries())) {
       const scenarioPath = path.join(this.evidencePath, scenarioId);
       
       try {
@@ -1216,23 +1316,23 @@ export class TraceCollector {
         if (this.options.compressTraces) {
           const compressed = await gzipAsync(JSON.stringify(completeTrace));
           await fs.promises.writeFile(`${tracePath}.gz`, compressed);
-          summary.traceFiles.push(`${tracePath}.gz`);
+          (summary as any)['traceFiles'].push(`${tracePath}.gz`);
         } else {
           await fs.promises.writeFile(tracePath, JSON.stringify(completeTrace, null, 2));
-          summary.traceFiles.push(tracePath);
+          (summary as any)['traceFiles'].push(tracePath);
         }
 
         // Generate analysis report
         const analysisPath = path.join(scenarioPath, `${scenarioId}-analysis.json`);
         const analysis = await this.generateCompleteAnalysis(traceData);
         await fs.promises.writeFile(analysisPath, JSON.stringify(analysis, null, 2));
-        summary.analysisReports.push(analysisPath);
+        (summary as any)['analysisReports'].push(analysisPath);
 
         // Save coverage report if collected
         if (coverageData) {
           const coveragePath = path.join(scenarioPath, `${scenarioId}-coverage.json`);
           await fs.promises.writeFile(coveragePath, JSON.stringify(coverageData, null, 2));
-          summary.coverageReports.push(coveragePath);
+          (summary as any)['coverageReports'].push(coveragePath);
         }
 
         // Save custom metrics
@@ -1243,7 +1343,7 @@ export class TraceCollector {
             scenarioId,
             metrics: customMetrics
           }, null, 2));
-          summary.customMetrics.push(metricsPath);
+          (summary as any)['customMetrics'].push(metricsPath);
         }
 
         // Generate flame chart data
@@ -1252,12 +1352,12 @@ export class TraceCollector {
         await fs.promises.writeFile(flameChartPath, JSON.stringify(flameChart, null, 2));
 
         // Update summary
-        summary.totalEvents += traceData.events.length;
-        summary.totalDuration += (performance.now() - traceData.startTime);
+        (summary as any)['totalEvents'] += traceData.events.length;
+        (summary as any)['totalDuration'] += (performance.now() - (traceData.startTime ?? 0));
         
-        summary.scenarios[scenarioId] = {
+        (summary as any)['scenarios'][scenarioId] = {
           eventCount: traceData.events.length,
-          duration: performance.now() - traceData.startTime,
+          duration: performance.now() - (traceData.startTime ?? 0),
           metrics: traceData.metrics,
           traceFile: tracePath,
           analysisFile: analysisPath,
@@ -1266,9 +1366,7 @@ export class TraceCollector {
         };
 
       } catch (error) {
-        ActionLogger.error('Error finalizing trace for scenario', error as Error, {
-          scenarioId
-        });
+        ActionLogger.logError('Error finalizing trace for scenario', error as Error);
       } finally {
         // Cleanup CDP session
         const client = this.cdpSessions.get(scenarioId);
@@ -1292,11 +1390,11 @@ export class TraceCollector {
     const consolidatedMetrics = this.generateConsolidatedMetrics();
     await fs.promises.writeFile(metricsPath, JSON.stringify(consolidatedMetrics, null, 2));
 
-    ActionLogger.info('TraceCollector finalized', {
+    ActionLogger.logInfo('TraceCollector finalized', {
       executionId,
-      totalScenarios: summary.totalScenarios,
-      totalEvents: summary.totalEvents,
-      totalDuration: `${(summary.totalDuration / 1000).toFixed(2)}s`
+      totalScenarios: (summary as any)['totalScenarios'],
+      totalEvents: (summary as any)['totalEvents'],
+      totalDuration: `${((summary as any)['totalDuration'] / 1000).toFixed(2)}s`
     });
 
     return summary;
@@ -1311,11 +1409,11 @@ export class TraceCollector {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
     } catch (error) {
-      ActionLogger.error('Error stopping trace', error as Error, { scenarioId });
+      ActionLogger.logError('Error stopping trace', error as Error);
     }
   }
 
-  private async collectCoverageData(client: CDPSession, scenarioId: string): Promise<CoverageData> {
+  private async collectCoverageData(client: CDPSession, _scenarioId: string): Promise<CoverageData> {
     const coverage: CoverageData = {
       js: {
         total: 0,
@@ -1374,8 +1472,10 @@ export class TraceCollector {
         let usedBytes = 0;
         
         // Calculate used bytes from ranges
-        for (const range of stylesheet.usedRanges || []) {
-          usedBytes += range.endOffset - range.startOffset;
+        if ((stylesheet as any).usedRanges) {
+          for (const range of (stylesheet as any).usedRanges) {
+            usedBytes += range.endOffset - range.startOffset;
+          }
         }
         
         coverage.css.total += totalBytes;
@@ -1386,7 +1486,7 @@ export class TraceCollector {
           total: totalBytes,
           used: usedBytes,
           percentage: totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0,
-          ranges: (stylesheet.usedRanges || []).map(r => ({
+          ranges: ((stylesheet as any).usedRanges || []).map((r: any) => ({
             start: r.startOffset,
             end: r.endOffset,
             count: 1
@@ -1405,7 +1505,7 @@ export class TraceCollector {
       await client.send('CSS.stopRuleUsageTracking');
       
     } catch (error) {
-      ActionLogger.error('Error collecting coverage data', error as Error, { scenarioId });
+      ActionLogger.logError('Error collecting coverage data', error as Error);
     }
     
     return coverage;
@@ -1413,58 +1513,75 @@ export class TraceCollector {
 
   private async generateCompleteAnalysis(traceData: TraceData): Promise<TraceAnalysis> {
     const events = traceData.events;
-    const metrics = traceData.metrics;
+    const metrics = traceData.metrics || this.createEmptyMetrics();
     
     const analysis: TraceAnalysis = {
       summary: {
-        totalTime: (performance.now() - traceData.startTime) / 1000,
-        scriptingTime: metrics.scriptTime,
-        renderingTime: metrics.layoutTime + metrics.styleTime,
-        paintingTime: metrics.paintTime,
+        duration: 0,
+        eventCount: events.length,
+        processes: 1,
+        threads: 1,
+        screenshots: 0,
+        frames: 0,
+        totalTime: (performance.now() - (traceData.startTime || 0)) / 1000,
+        scriptingTime: (metrics as any)['scriptTime'] || 0,
+        renderingTime: ((metrics as any)['layoutTime'] || 0) + ((metrics as any)['styleTime'] || 0),
+        paintingTime: (metrics as any)['paintTime'] || 0,
         idleTime: 0,
-        longTaskTime: metrics.longTasks.reduce((sum, task) => sum + task.duration, 0)
+        longTaskTime: (metrics.longTasks || []).reduce((sum, task) => sum + task.duration, 0)
       },
-      longTasks: metrics.longTasks,
-      layoutShifts: metrics.layoutShifts,
-      frameMetrics: {
-        total: metrics.frames.total,
-        dropped: metrics.frames.dropped,
-        fps: 0,
-        jank: 0
+      metrics: {
+        longTasks: metrics.longTasks || [],
+        layoutShifts: metrics.layoutShifts || []
       },
-      memoryMetrics: {
-        peakJSHeapSize: metrics.jsHeapUsed,
-        averageJSHeapSize: 0,
-        totalAllocated: 0,
-        totalFreed: 0,
-        leaks: []
-      },
-      cpuMetrics: {
-        totalTime: 0,
-        idleTime: 0,
-        categories: {}
-      },
-      networkMetrics: {
-        requests: metrics.totalResources,
-        totalSize: 0,
-        totalDuration: 0
-      },
-      customMetrics: this.customMetrics.get(traceData.scenarioId) || [],
-      userTimings: this.userTimings.get(traceData.scenarioId) || [],
-      recommendations: []
+      performance: {
+        frameMetrics: {
+          total: (metrics as any)['frames']?.total || 0,
+          dropped: (metrics as any)['frames']?.dropped || 0,
+          fps: 0,
+          jank: 0
+        },
+        memoryMetrics: {
+          peakJSHeapSize: (metrics as any)['jsHeapUsed'] || 0,
+          averageJSHeapSize: 0,
+          totalAllocated: 0,
+          totalFreed: 0,
+          leaks: []
+        },
+        cpuMetrics: {
+          totalTime: 0,
+          idleTime: 0,
+          categories: {}
+        },
+        networkMetrics: {
+          requests: (metrics as any)['totalResources'] || 0,
+          totalSize: 0,
+          totalDuration: 0
+        },
+        customMetrics: this.customMetrics.get(traceData.scenarioId || '') || [],
+        userTimings: this.userTimings.get(traceData.scenarioId || '') || [],
+        recommendations: []
+      }
     };
     
     // Calculate idle time
-    analysis.summary.idleTime = Math.max(0,
-      analysis.summary.totalTime -
-      analysis.summary.scriptingTime -
-      analysis.summary.renderingTime -
-      analysis.summary.paintingTime
+    const summaryTotalTime = (analysis.summary as any).totalTime || 0;
+    const summaryScriptingTime = (analysis.summary as any).scriptingTime || 0;
+    const summaryRenderingTime = (analysis.summary as any).renderingTime || 0;
+    const summaryPaintingTime = (analysis.summary as any).paintingTime || 0;
+    
+    (analysis.summary as any).idleTime = Math.max(0,
+      summaryTotalTime -
+      summaryScriptingTime -
+      summaryRenderingTime -
+      summaryPaintingTime
     );
     
     // Calculate FPS if we have frame data
-    if (metrics.frames.total > 0 && analysis.summary.totalTime > 0) {
-      analysis.frameMetrics.fps = metrics.frames.total / analysis.summary.totalTime;
+    if ((metrics as any).frames?.total > 0 && (analysis.summary as any).totalTime > 0) {
+      const frameMetrics = (analysis as any).frameMetrics || {};
+      frameMetrics.fps = (metrics as any).frames.total / (analysis.summary as any).totalTime;
+      (analysis as any).frameMetrics = frameMetrics;
     }
     
     // Analyze CPU usage by category
@@ -1480,21 +1597,23 @@ export class TraceCollector {
       }
     }
     
-    analysis.cpuMetrics.totalTime = totalCPUTime;
-    analysis.cpuMetrics.idleTime = Math.max(0, analysis.summary.totalTime - totalCPUTime);
-    analysis.cpuMetrics.categories = Object.fromEntries(cpuByCategory);
+    (analysis as any).cpuMetrics.totalTime = totalCPUTime;
+    (analysis as any).cpuMetrics.idleTime = Math.max(0, (analysis.summary as any).totalTime - totalCPUTime);
+    (analysis as any).cpuMetrics.categories = Object.fromEntries(cpuByCategory);
     
     // Detect memory leaks
     const memoryEvents = events
-      .filter(e => e.name === 'UpdateCounters' && e.args?.data?.jsHeapSizeUsed)
-      .map(e => ({
-        timestamp: e.ts,
+      .filter((e: TraceEvent) => e.name === 'UpdateCounters' && e.args?.data?.jsHeapSizeUsed)
+      .map((e: TraceEvent) => ({
+        timestamp: e.ts ?? 0,
         heapSize: e.args!.data!.jsHeapSizeUsed
       }));
     
     if (memoryEvents.length > 10) {
       const leaks = this.detectMemoryLeaks(memoryEvents);
-      analysis.memoryMetrics.leaks = leaks;
+      const memoryMetrics = (analysis as any).memoryMetrics || {};
+      memoryMetrics.leaks = leaks;
+      (analysis as any).memoryMetrics = memoryMetrics;
     }
     
     // Generate performance recommendations
@@ -1503,8 +1622,8 @@ export class TraceCollector {
     return analysis;
   }
 
-  private detectMemoryLeaks(memoryEvents: Array<{timestamp: number, heapSize: number}>): any[] {
-    const leaks = [];
+  private detectMemoryLeaks(memoryEvents: Array<{timestamp: number, heapSize: number}>): Array<{startTime: number, endTime: number, duration: number, growth: number, rate: number, severity: string}> {
+    const leaks: Array<{startTime: number, endTime: number, duration: number, growth: number, rate: number, severity: string}> = [];
     const windowSize = 10;
     
     if (memoryEvents.length < windowSize * 2) return leaks;
@@ -1516,9 +1635,9 @@ export class TraceCollector {
       
       // If memory is growing consistently (positive slope)
       if (slope > 1000) { // 1KB per timestamp unit
-        const startTime = window[0].timestamp;
-        const endTime = window[window.length - 1].timestamp;
-        const growth = window[window.length - 1].heapSize - window[0].heapSize;
+        const startTime = window[0]?.timestamp ?? 0;
+        const endTime = window[window.length - 1]?.timestamp ?? 0;
+        const growth = (window[window.length - 1]?.heapSize ?? 0) - (window[0]?.heapSize ?? 0);
         
         leaks.push({
           startTime,
@@ -1554,50 +1673,57 @@ export class TraceCollector {
 
   private generateCompleteRecommendations(analysis: TraceAnalysis, events: TraceEvent[]): void {
     // Long task analysis
-    if (analysis.longTasks.length > 5) {
-      const topTasks = analysis.longTasks
-        .sort((a, b) => b.duration - a.duration)
+    const longTasks = (analysis.metrics as any)?.longTasks || [];
+    if (longTasks.length > 5) {
+      const topTasks = longTasks
+        .sort((a: any, b: any) => b.duration - a.duration)
         .slice(0, 5);
       
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
         severity: 'high',
         title: 'Multiple long-running tasks detected',
-        description: `${analysis.longTasks.length} tasks exceeded 50ms, with the longest taking ${topTasks[0].duration.toFixed(0)}ms`,
+        description: `${longTasks.length} tasks exceeded 50ms, with the longest taking ${topTasks[0].duration.toFixed(0)}ms`,
         impact: 'Long tasks block the main thread and make the UI unresponsive',
         solution: 'Break up long tasks using requestIdleCallback, use Web Workers for heavy computation',
         details: {
-          topTasks: topTasks.map(t => ({
+          topTasks: topTasks.map((t: any) => ({
             duration: t.duration,
             source: t.attribution
           }))
         }
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
     
     // Memory leak detection
-    if (analysis.memoryMetrics.leaks.length > 0) {
-      const totalGrowth = analysis.memoryMetrics.leaks.reduce((sum, leak) => sum + leak.growth, 0);
+    const memoryMetrics = (analysis.metrics as any)?.memoryMetrics;
+    if (memoryMetrics && memoryMetrics.leaks && memoryMetrics.leaks.length > 0) {
+      const totalGrowth = memoryMetrics.leaks.reduce((sum: number, leak: any) => sum + leak.growth, 0);
       
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'memory',
         severity: 'high',
         title: 'Potential memory leaks detected',
-        description: `${analysis.memoryMetrics.leaks.length} potential memory leaks found, total growth: ${(totalGrowth / 1024 / 1024).toFixed(2)}MB`,
+        description: `${memoryMetrics.leaks.length} potential memory leaks found, total growth: ${(totalGrowth / 1024 / 1024).toFixed(2)}MB`,
         impact: 'Memory leaks cause performance degradation and potential crashes',
         solution: 'Review event listeners, clear timers/intervals, remove DOM references',
         details: {
-          leaks: analysis.memoryMetrics.leaks
+          leaks: memoryMetrics.leaks
         }
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
     
     // Layout thrashing detection
-    const layoutEvents = events.filter(e => e.name === 'Layout');
+    const layoutEvents = events.filter((e: TraceEvent) => e.name === 'Layout');
     const consecutiveLayouts = this.findConsecutiveEvents(layoutEvents, 10); // within 10ms
     
     if (consecutiveLayouts.length > 0) {
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
         severity: 'medium',
         title: 'Layout thrashing detected',
@@ -1605,12 +1731,14 @@ export class TraceCollector {
         impact: 'Layout thrashing causes unnecessary reflows and poor performance',
         solution: 'Batch DOM reads and writes, use requestAnimationFrame for animations'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
     
     // Render blocking resources
     const renderBlockingTime = this.calculateRenderBlockingTime(events);
     if (renderBlockingTime > 1000) { // > 1 second
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
         severity: 'high',
         title: 'Significant render blocking detected',
@@ -1618,12 +1746,17 @@ export class TraceCollector {
         impact: 'Render blocking delays when users can see and interact with the page',
         solution: 'Defer non-critical scripts, inline critical CSS, use resource hints'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
     
     // CPU usage recommendations
-    const cpuUsage = (analysis.cpuMetrics.totalTime / analysis.summary.totalTime) * 100;
+    const cpuMetrics = (analysis as any).cpuMetrics;
+    const summaryTotalTime = (analysis.summary as any).totalTime || 1;
+    const cpuTotalTime = cpuMetrics?.totalTime || 0;
+    const cpuUsage = (cpuTotalTime / summaryTotalTime) * 100;
     if (cpuUsage > 80) {
-      analysis.recommendations.push({
+      const recommendations = (analysis.metrics as any).recommendations || [];
+      recommendations.push({
         category: 'performance',
         severity: 'high',
         title: 'High CPU usage detected',
@@ -1631,6 +1764,7 @@ export class TraceCollector {
         impact: 'High CPU usage drains battery and causes heat on mobile devices',
         solution: 'Optimize JavaScript execution, reduce complexity of operations'
       });
+      (analysis.metrics as any).recommendations = recommendations;
     }
   }
 
@@ -1639,11 +1773,14 @@ export class TraceCollector {
     let current: TraceEvent[] = [];
     
     for (let i = 0; i < events.length - 1; i++) {
-      const gap = events[i + 1].ts - (events[i].ts + (events[i].dur || 0));
+      const currentEvent = events[i];
+      const nextEvent = events[i + 1];
+      if (!currentEvent || !nextEvent) continue;
+      const gap = (nextEvent?.ts ?? 0) - ((currentEvent?.ts ?? 0) + (currentEvent?.dur ?? 0));
       
       if (gap < threshold * 1000) { // Convert ms to microseconds
-        if (current.length === 0) current.push(events[i]);
-        current.push(events[i + 1]);
+        if (current.length === 0) current.push(currentEvent);
+        current.push(nextEvent);
       } else {
         if (current.length > 1) {
           consecutive.push(current);
@@ -1663,7 +1800,7 @@ export class TraceCollector {
     let blockingTime = 0;
     
     // Find parse blocking scripts
-    const scriptEvaluations = events.filter(e => 
+    const scriptEvaluations = events.filter((e: TraceEvent) => 
       e.name === 'EvaluateScript' && 
       e.args?.data?.url && 
       !e.args.data.url.includes('async') &&
@@ -1671,12 +1808,12 @@ export class TraceCollector {
     );
     
     // Find render blocking stylesheets
-    const styleParses = events.filter(e => 
+    const styleParses = events.filter((e: TraceEvent) => 
       e.name === 'ParseAuthorStyleSheet'
     );
     
     // Calculate total blocking time
-    [...scriptEvaluations, ...styleParses].forEach(event => {
+    [...scriptEvaluations, ...styleParses].forEach((event: TraceEvent) => {
       if (event.dur) {
         blockingTime += event.dur / 1000; // Convert to ms
       }
@@ -1698,7 +1835,7 @@ export class TraceCollector {
     
     // Group events by thread
     for (const event of events) {
-      const tid = event.tid || 'main';
+      const tid = String(event.tid || 'main');
       if (!eventsByThread.has(tid)) {
         eventsByThread.set(tid, []);
       }
@@ -1707,15 +1844,15 @@ export class TraceCollector {
     
     // Process main thread events
     const mainThreadEvents = eventsByThread.get('main') || events;
-    const sortedEvents = mainThreadEvents.sort((a, b) => a.ts - b.ts);
+    const sortedEvents = mainThreadEvents.sort((a, b) => (a.ts || 0) - (b.ts || 0));
     
     for (const event of sortedEvents) {
       if (event.ph === 'B' || event.ph === 'X') { // Begin or Complete
         const node = {
           name: event.name,
           value: event.dur || 0,
-          startTime: event.ts,
-          endTime: event.ts + (event.dur || 0),
+          startTime: event.ts ?? 0,
+          endTime: (event.ts ?? 0) + (event.dur || 0),
           category: event.cat,
           args: event.args,
           children: []
@@ -1724,7 +1861,7 @@ export class TraceCollector {
         // Pop stack until we find parent
         while (stack.length > 1) {
           const parent = stack[stack.length - 1];
-          if (parent.endTime > event.ts) {
+          if (parent.endTime > (event.ts ?? 0)) {
             break;
           }
           stack.pop();
@@ -1743,9 +1880,9 @@ export class TraceCollector {
     
     return {
       root: callTree,
-      threads: Object.fromEntries(eventsByThread.keys()),
+      threads: Array.from(eventsByThread.keys()),
       totalTime: sortedEvents.length > 0 ? 
-        sortedEvents[sortedEvents.length - 1].ts - sortedEvents[0].ts : 0
+        (sortedEvents[sortedEvents.length - 1]?.ts ?? 0) - (sortedEvents[0]?.ts ?? 0) : 0
     };
   }
 
@@ -1790,39 +1927,42 @@ export class TraceCollector {
     let heapSizes: number[] = [];
     
     // Aggregate metrics from all scenarios
-    for (const [scenarioId, traceData] of this.traces) {
+    for (const [scenarioId, traceData] of Array.from(this.traces.entries())) {
       const metrics = traceData.metrics;
       
       consolidated.summary.totalEvents += traceData.events.length;
-      consolidated.summary.totalDuration += performance.now() - traceData.startTime;
-      consolidated.summary.totalLongTasks += metrics.longTasks.length;
-      consolidated.summary.totalLayoutShifts += metrics.layoutShifts.length;
+      consolidated.summary.totalDuration += performance.now() - (traceData.startTime || 0);
+      consolidated.summary.totalLongTasks += (metrics?.longTasks?.length || 0);
+      consolidated.summary.totalLayoutShifts += (metrics?.layoutShifts?.length || 0);
       
-      consolidated.performance.scriptingTime += metrics.scriptTime;
-      consolidated.performance.renderingTime += metrics.layoutTime + metrics.styleTime;
-      consolidated.performance.paintingTime += metrics.paintTime;
+      consolidated.performance.scriptingTime += ((metrics as any)?.scriptTime || 0);
+      consolidated.performance.renderingTime += ((metrics as any)?.layoutTime || 0) + ((metrics as any)?.styleTime || 0);
+      consolidated.performance.paintingTime += ((metrics as any)?.paintTime || 0);
       
-      if (metrics.frames.total > 0) {
-        const fps = metrics.frames.total / ((performance.now() - traceData.startTime) / 1000);
+      const framesData = (metrics as any)?.frames;
+      if (framesData && framesData.total > 0) {
+        const fps = framesData.total / ((performance.now() - (traceData.startTime || 0)) / 1000);
         totalFPS += fps;
         fpsCount++;
       }
       
-      if (metrics.cumulativeLayoutShift > 0) {
-        totalCLS += metrics.cumulativeLayoutShift;
+      const cumulativeLayoutShift = (metrics as any)?.cumulativeLayoutShift;
+      if (cumulativeLayoutShift && cumulativeLayoutShift > 0) {
+        totalCLS += cumulativeLayoutShift;
         clsCount++;
       }
       
-      if (metrics.jsHeapUsed > 0) {
-        heapSizes.push(metrics.jsHeapUsed);
+      const jsHeapUsed = (metrics as any)?.jsHeapUsed;
+      if (jsHeapUsed && jsHeapUsed > 0) {
+        heapSizes.push(jsHeapUsed);
       }
       
       // Aggregate user timings
       const timings = this.userTimings.get(scenarioId) || [];
       for (const timing of timings) {
-        if (timing.type === 'mark' && !consolidated.userTimings.marks.includes(timing.name)) {
+        if (timing.entryType === 'mark' && !consolidated.userTimings.marks.includes(timing.name)) {
           consolidated.userTimings.marks.push(timing.name);
-        } else if (timing.type === 'measure' && !consolidated.userTimings.measures.includes(timing.name)) {
+        } else if (timing.entryType === 'measure' && !consolidated.userTimings.measures.includes(timing.name)) {
           consolidated.userTimings.measures.push(timing.name);
         }
       }
@@ -1850,7 +1990,7 @@ export class TraceCollector {
     );
     
     // Aggregate coverage data
-    for (const [scenarioId, coverage] of this.coverageData) {
+    for (const [_scenarioId, coverage] of Array.from(this.coverageData.entries())) {
       consolidated.coverage.jsTotal += coverage.js.total;
       consolidated.coverage.jsUsed += coverage.js.used;
       consolidated.coverage.cssTotal += coverage.css.total;
@@ -1861,17 +2001,4 @@ export class TraceCollector {
   }
 }
 
-// Helper interfaces for trace data
-interface TraceData {
-  scenarioId: string;
-  scenarioName: string;
-  events: TraceEvent[];
-  screenshots: Array<{
-    timestamp: number;
-    snapshot: any;
-    stepId?: string;
-  }>;
-  metrics: TraceMetrics;
-  startTime: number;
-  endTime: number;
-}
+// Helper interfaces for trace data (removing duplicate, using the main interface)

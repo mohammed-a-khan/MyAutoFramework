@@ -1,8 +1,7 @@
 import { Page, Browser, BrowserContext, chromium } from 'playwright';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { createWriteStream, createReadStream, existsSync } from 'fs';
-import { pipeline } from 'stream/promises';
+import { existsSync } from 'fs';
 import * as crypto from 'crypto';
 import { 
   PDFDocument, 
@@ -10,24 +9,20 @@ import {
   PDFHexString, 
   rgb, 
   StandardFonts, 
-  degrees,
   PDFPage,
-  PDFFont,
   PDFDict,
   PDFRef,
   PDFNumber,
   PDFArray,
   PDFObject,
   PDFStream,
-  PDFContext
 } from 'pdf-lib';
 import * as zlib from 'zlib';
-import { ReportData, ExportOptions, PDFOptions, ExportResult } from '../types/reporting.types';
+import { ReportData, PDFOptions, ExportResult, ExportFormat, EvidenceCollection } from '../types/reporting.types';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { FileUtils } from '../../core/utils/FileUtils';
 
 // PDF encryption constants
-const ENCRYPTION_KEY_LENGTH = 16; // 128-bit
 const PERMISSION_PRINT = 4;
 const PERMISSION_MODIFY = 8;
 const PERMISSION_COPY = 16;
@@ -37,7 +32,7 @@ interface TOCEntry {
   title: string;
   level: number;
   page: number;
-  pageRef?: PDFRef;
+  pageRef?: PDFRef | undefined;
   y?: number;
 }
 
@@ -74,11 +69,11 @@ export class PDFExporter {
     const startTime = Date.now();
 
     try {
-      this.logger.logAction({
-        action: 'pdf-export-start',
+      await this.logger.logAction('pdf-export-start', {
         target: 'report',
         status: 'info',
-        details: { exportId, options }
+        exportId,
+        options
       });
 
       // Prepare export environment
@@ -112,7 +107,7 @@ export class PDFExporter {
 
       // Add watermark to all pages
       if (options.watermark) {
-        await this.addWatermarkToPages(pdfDoc, options.watermark);
+        await this.addWatermarkToPages(pdfDoc, options.watermark.text || 'CONFIDENTIAL');
       }
 
       // Add page numbers and headers
@@ -151,8 +146,8 @@ export class PDFExporter {
 
       const result: ExportResult = {
         success: true,
-        path: outputPath,
-        format: 'pdf',
+        filePath: outputPath,
+        format: ExportFormat.PDF,
         size: stats.size,
         duration: Date.now() - startTime,
         metadata: {
@@ -168,11 +163,10 @@ export class PDFExporter {
         }
       };
 
-      this.logger.logAction({
-        action: 'pdf-export-complete',
+      await this.logger.logAction('pdf-export-complete', {
         target: 'report',
         status: 'success',
-        details: result
+        ...result
       });
 
       return result;
@@ -197,9 +191,9 @@ export class PDFExporter {
     pdfDoc.setTitle(options.title || `Test Report - ${reportData.summary.projectName}`);
     pdfDoc.setAuthor(options.author || 'CS Test Automation Framework');
     pdfDoc.setSubject(options.subject || 'Automated Test Execution Report');
-    pdfDoc.setKeywords(options.keywords?.split(',') || [
-      'testing', 'automation', reportData.summary.projectName,
-      reportData.environment.name || 'test', 'cs-framework'
+    pdfDoc.setKeywords(options.keywords?.split(',').map(k => k.trim()) || [
+      'testing', 'automation', reportData.summary.projectName || 'project',
+      reportData.environment || 'test', 'cs-framework'
     ]);
     pdfDoc.setProducer('CS Test Automation Framework v1.0.0');
     pdfDoc.setCreator('Playwright + pdf-lib + CS Framework');
@@ -210,21 +204,18 @@ export class PDFExporter {
     const infoDict = pdfDoc.context.trailerInfo.Info;
     if (infoDict instanceof PDFDict) {
       // Execution metadata
-      infoDict.set(PDFName.of('CS_ExecutionId'), PDFHexString.fromText(reportData.summary.executionId));
-      infoDict.set(PDFName.of('CS_Environment'), PDFHexString.fromText(reportData.environment.name || 'unknown'));
+      infoDict.set(PDFName.of('CS_ExecutionId'), PDFHexString.fromText(reportData.summary.executionId || 'unknown'));
+      infoDict.set(PDFName.of('CS_Environment'), PDFHexString.fromText(reportData.environment || 'unknown'));
       infoDict.set(PDFName.of('CS_PassRate'), PDFNumber.of(reportData.summary.passRate));
       infoDict.set(PDFName.of('CS_TotalTests'), PDFNumber.of(reportData.summary.totalScenarios));
-      infoDict.set(PDFName.of('CS_PassedTests'), PDFNumber.of(reportData.summary.passed));
-      infoDict.set(PDFName.of('CS_FailedTests'), PDFNumber.of(reportData.summary.failed));
-      infoDict.set(PDFName.of('CS_SkippedTests'), PDFNumber.of(reportData.summary.skipped));
-      infoDict.set(PDFName.of('CS_Duration'), PDFNumber.of(reportData.summary.duration));
-      infoDict.set(PDFName.of('CS_StartTime'), PDFHexString.fromText(new Date(reportData.summary.startTime).toISOString()));
-      infoDict.set(PDFName.of('CS_EndTime'), PDFHexString.fromText(new Date(reportData.summary.endTime).toISOString()));
+      infoDict.set(PDFName.of('CS_PassedTests'), PDFNumber.of(reportData.summary.passed || 0));
+      infoDict.set(PDFName.of('CS_FailedTests'), PDFNumber.of(reportData.summary.failed || 0));
+      infoDict.set(PDFName.of('CS_SkippedTests'), PDFNumber.of(reportData.summary.skipped || 0));
+      infoDict.set(PDFName.of('CS_Duration'), PDFNumber.of(reportData.summary.duration || 0));
+      infoDict.set(PDFName.of('CS_StartTime'), PDFHexString.fromText(reportData.summary.startTime ? new Date(reportData.summary.startTime).toISOString() : 'unknown'));
+      infoDict.set(PDFName.of('CS_EndTime'), PDFHexString.fromText(reportData.summary.endTime ? new Date(reportData.summary.endTime).toISOString() : 'unknown'));
       
       // Technical metadata
-      infoDict.set(PDFName.of('CS_Browser'), PDFHexString.fromText(reportData.environment.browser));
-      infoDict.set(PDFName.of('CS_Platform'), PDFHexString.fromText(reportData.environment.platform));
-      infoDict.set(PDFName.of('CS_NodeVersion'), PDFHexString.fromText(reportData.environment.nodeVersion));
       infoDict.set(PDFName.of('CS_FrameworkVersion'), PDFHexString.fromText('1.0.0'));
       
       // Feature list
@@ -273,7 +264,7 @@ export class PDFExporter {
       </dc:description>
       <dc:subject>
         <rdf:Bag>
-          ${(options.keywords?.split(',') || ['testing', 'automation']).map(k => `<rdf:li>${k.trim()}</rdf:li>`).join('\n          ')}
+          ${(options.keywords?.split(',') || ['testing', 'automation']).map((k: string) => `<rdf:li>${k.trim()}</rdf:li>`).join('\n          ')}
         </rdf:Bag>
       </dc:subject>
       <xmp:CreateDate>${new Date().toISOString()}</xmp:CreateDate>
@@ -281,7 +272,7 @@ export class PDFExporter {
       <xmp:CreatorTool>CS Test Automation Framework v1.0.0</xmp:CreatorTool>
       <pdf:Producer>CS Framework PDF Exporter</pdf:Producer>
       <cs:executionId>${reportData.summary.executionId}</cs:executionId>
-      <cs:environment>${reportData.environment.name || 'unknown'}</cs:environment>
+      <cs:environment>${reportData.environment || 'unknown'}</cs:environment>
       <cs:passRate>${reportData.summary.passRate.toFixed(2)}</cs:passRate>
       <cs:totalTests>${reportData.summary.totalScenarios}</cs:totalTests>
       <cs:passedTests>${reportData.summary.passed}</cs:passedTests>
@@ -323,11 +314,11 @@ export class PDFExporter {
     // Embed fonts
     const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const helveticaOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
     // Process each TOC page
     for (let pageIndex = 0; pageIndex < tocPages.length; pageIndex++) {
       const page = tocPages[pageIndex];
+      if (!page) continue;
       const { width, height } = page.getSize();
       
       // Draw TOC header on first page
@@ -442,7 +433,7 @@ export class PDFExporter {
       level: 1,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 72
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 72
     });
     currentPage++;
 
@@ -452,7 +443,7 @@ export class PDFExporter {
       level: 1,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 72
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 72
     });
 
     entries.push({
@@ -460,7 +451,7 @@ export class PDFExporter {
       level: 2,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 200
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 200
     });
 
     entries.push({
@@ -468,7 +459,7 @@ export class PDFExporter {
       level: 2,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 400
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 400
     });
     currentPage++;
 
@@ -478,7 +469,7 @@ export class PDFExporter {
       level: 1,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 72
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 72
     });
 
     entries.push({
@@ -486,7 +477,7 @@ export class PDFExporter {
       level: 2,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 200
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 200
     });
 
     entries.push({
@@ -494,7 +485,7 @@ export class PDFExporter {
       level: 2,
       page: currentPage + 1,
       pageRef: pages[currentPage]?.ref,
-      y: pages[currentPage]?.getHeight() - 72
+      y: (pages[currentPage]?.getHeight() || 792) - 72
     });
     currentPage += 2;
 
@@ -504,16 +495,16 @@ export class PDFExporter {
       level: 1,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 72
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 72
     });
 
-    reportData.features.forEach((feature, featureIndex) => {
+    reportData.features.forEach((feature) => {
       entries.push({
-        title: feature.name,
+        title: feature.name || feature.feature,
         level: 2,
         page: currentPage,
         pageRef: pages[currentPage - 1]?.ref,
-        y: pages[currentPage - 1]?.getHeight() - 72
+        y: (pages[currentPage - 1]?.getHeight() || 792) - 72
       });
 
       feature.scenarios.forEach((scenario, scenarioIndex) => {
@@ -522,7 +513,7 @@ export class PDFExporter {
           level: 3,
           page: currentPage,
           pageRef: pages[currentPage - 1]?.ref,
-          y: pages[currentPage - 1]?.getHeight() - (200 + scenarioIndex * 100)
+          y: (pages[currentPage - 1]?.getHeight() || 792) - (200 + scenarioIndex * 100)
         });
 
         if (scenario.status === 'failed') {
@@ -531,7 +522,7 @@ export class PDFExporter {
             level: 4,
             page: currentPage,
             pageRef: pages[currentPage - 1]?.ref,
-            y: pages[currentPage - 1]?.getHeight() - (250 + scenarioIndex * 100)
+            y: (pages[currentPage - 1]?.getHeight() || 792) - (250 + scenarioIndex * 100)
           });
         }
 
@@ -543,13 +534,13 @@ export class PDFExporter {
     });
 
     // Failed Tests Summary
-    if (reportData.summary.failed > 0) {
+    if ((reportData.summary.failed || 0) > 0) {
       entries.push({
         title: 'Failed Tests Summary',
         level: 1,
         page: currentPage,
         pageRef: pages[currentPage - 1]?.ref,
-        y: pages[currentPage - 1]?.getHeight() - 72
+        y: (pages[currentPage - 1]?.getHeight() || 792) - 72
       });
       currentPage++;
     }
@@ -561,7 +552,7 @@ export class PDFExporter {
         level: 1,
         page: currentPage,
         pageRef: pages[currentPage - 1]?.ref,
-        y: pages[currentPage - 1]?.getHeight() - 72
+        y: (pages[currentPage - 1]?.getHeight() || 792) - 72
       });
 
       if (reportData.evidence.screenshots.length > 0) {
@@ -570,7 +561,7 @@ export class PDFExporter {
           level: 2,
           page: currentPage,
           pageRef: pages[currentPage - 1]?.ref,
-          y: pages[currentPage - 1]?.getHeight() - 150
+          y: (pages[currentPage - 1]?.getHeight() || 792) - 150
         });
         currentPage += Math.ceil(reportData.evidence.screenshots.length / 4);
       }
@@ -581,7 +572,7 @@ export class PDFExporter {
           level: 2,
           page: currentPage,
           pageRef: pages[currentPage - 1]?.ref,
-          y: pages[currentPage - 1]?.getHeight() - 72
+          y: (pages[currentPage - 1]?.getHeight() || 792) - 72
         });
         currentPage++;
       }
@@ -593,7 +584,7 @@ export class PDFExporter {
       level: 1,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 72
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 72
     });
 
     entries.push({
@@ -601,7 +592,7 @@ export class PDFExporter {
       level: 2,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 150
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 150
     });
 
     entries.push({
@@ -609,7 +600,7 @@ export class PDFExporter {
       level: 2,
       page: currentPage,
       pageRef: pages[currentPage - 1]?.ref,
-      y: pages[currentPage - 1]?.getHeight() - 300
+      y: (pages[currentPage - 1]?.getHeight() || 792) - 300
     });
 
     return entries;
@@ -722,13 +713,26 @@ export class PDFExporter {
       const { width, height } = page.getSize();
       
       // Add ExtGState to page resources
-      const resources = page.node.Resources || pdfDoc.context.obj({});
-      if (!resources.get(PDFName.of('ExtGState'))) {
-        resources.set(PDFName.of('ExtGState'), pdfDoc.context.obj({}));
+      const pageNode = page.node;
+      const resourcesValue = pageNode.get(PDFName.of('Resources'));
+      let resourcesDict: PDFDict;
+      
+      if (!resourcesValue) {
+        resourcesDict = pdfDoc.context.obj({});
+        pageNode.set(PDFName.of('Resources'), resourcesDict);
+      } else if (resourcesValue instanceof PDFDict) {
+        resourcesDict = resourcesValue;
+      } else {
+        continue; // Skip if resources is not a dictionary
       }
-      const extGStates = resources.get(PDFName.of('ExtGState')) as PDFDict;
-      extGStates.set(PDFName.of('WatermarkGS'), extGStateRef);
-      page.node.set(PDFName.of('Resources'), resources);
+      
+      if (!resourcesDict.get(PDFName.of('ExtGState'))) {
+        resourcesDict.set(PDFName.of('ExtGState'), pdfDoc.context.obj({}));
+      }
+      const extGStates = resourcesDict.get(PDFName.of('ExtGState')) as PDFDict;
+      if (typeof extGStates !== 'function') {
+        extGStates.set(PDFName.of('WatermarkGS'), extGStateRef);
+      }
 
       // Calculate watermark position and rotation
       const fontSize = 60;
@@ -753,14 +757,35 @@ export class PDFExporter {
       ].join('\n');
 
       // Add font to page resources if not present
-      const fonts = resources.get(PDFName.of('Font')) as PDFDict || pdfDoc.context.obj({});
-      fonts.set(PDFName.of('F1'), font.ref);
-      resources.set(PDFName.of('Font'), fonts);
+      const fontsObj = resourcesDict.get(PDFName.of('Font'));
+      let fonts: PDFDict;
+      if (!fontsObj) {
+        fonts = pdfDoc.context.obj({});
+        resourcesDict.set(PDFName.of('Font'), fonts);
+      } else {
+        fonts = fontsObj as PDFDict;
+      }
+      if (fonts instanceof PDFDict) {
+        fonts.set(PDFName.of('F1'), font.ref);
+      }
 
       // Prepend watermark to page content
-      const existingContents = page.node.normalizedContents();
       const watermarkStream = pdfDoc.context.stream(operators);
-      page.node.set(PDFName.of('Contents'), [watermarkStream, ...existingContents]);
+      const contentsRef = pageNode.get(PDFName.of('Contents'));
+      
+      if (contentsRef instanceof PDFRef) {
+        // Contents is a reference to a stream or array
+        const watermarkRef = pdfDoc.context.register(watermarkStream);
+        const contentsArray = pdfDoc.context.obj([watermarkRef, contentsRef]);
+        pageNode.set(PDFName.of('Contents'), contentsArray);
+      } else if (contentsRef instanceof PDFArray) {
+        // Contents is already an array, prepend the watermark
+        const watermarkRef = pdfDoc.context.register(watermarkStream);
+        contentsRef.insert(0, watermarkRef);
+      } else {
+        // No existing contents, just set the watermark
+        pageNode.set(PDFName.of('Contents'), watermarkStream);
+      }
     }
   }
 
@@ -778,7 +803,7 @@ export class PDFExporter {
     // Skip TOC pages
     const tocPageCount = Math.ceil(150 / 30);
     
-    pages.forEach((page, index) => {
+    pages.forEach((page: PDFPage, index: number) => {
       const { width, height } = page.getSize();
       const pageNumber = index + 1;
       
@@ -801,7 +826,7 @@ export class PDFExporter {
       const headerY = height - 30;
       
       // Left header - document title
-      page.drawText(reportData.summary.projectName, {
+      page.drawText(reportData.summary.projectName || 'CS Test Automation', {
         x: 72,
         y: headerY,
         size: 9,
@@ -879,7 +904,7 @@ export class PDFExporter {
         const fileSpecRef = pdfDoc.context.register(fileSpec);
         embeddedFiles.set(PDFName.of(attachment.name), fileSpecRef);
       } catch (error) {
-        this.logger.logWarning(`Failed to embed attachment: ${attachment.name}`, { error });
+        this.logger.warn(`Failed to embed attachment: ${attachment.name}`, { error });
       }
     }
 
@@ -905,14 +930,17 @@ export class PDFExporter {
         const dict = obj.dict;
         if (!dict.get(PDFName.of('Filter'))) {
           // Compress uncompressed streams
-          const contents = obj.contents;
+          const contents = obj.getContents();
           const compressed = zlib.deflateSync(contents);
           
           dict.set(PDFName.of('Filter'), PDFName.of('FlateDecode'));
           dict.set(PDFName.of('Length'), PDFNumber.of(compressed.length));
           
           // Replace stream contents
-          const newStream = context.stream(compressed, dict);
+          const newStream = context.stream(compressed, {
+            Filter: PDFName.of('FlateDecode'),
+            Length: compressed.length
+          });
           context.assign(ref, newStream);
         }
       }
@@ -923,13 +951,13 @@ export class PDFExporter {
     const fontReplacements = new Map<PDFRef, PDFRef>();
     
     for (const page of pdfDoc.getPages()) {
-      const resources = page.node.Resources;
-      if (!resources) continue;
+      const resourcesValue = page.node.get(PDFName.of('Resources'));
+      if (!resourcesValue || !(resourcesValue instanceof PDFDict)) continue;
       
-      const fonts = resources.get(PDFName.of('Font'));
-      if (!(fonts instanceof PDFDict)) continue;
+      const fontsObj = resourcesValue.get(PDFName.of('Font'));
+      if (!fontsObj || !(fontsObj instanceof PDFDict)) continue;
       
-      fonts.entries().forEach(([name, fontRef]) => {
+      fontsObj.entries().forEach(([name, fontRef]: [PDFName, PDFObject]) => {
         if (!(fontRef instanceof PDFRef)) return;
         
         const font = context.lookup(fontRef);
@@ -942,7 +970,7 @@ export class PDFExporter {
         if (fontMap.has(fontKey)) {
           // Replace with existing font
           fontReplacements.set(fontRef, fontMap.get(fontKey)!);
-          fonts.set(name, fontMap.get(fontKey)!);
+          fontsObj.set(name, fontMap.get(fontKey)!);
         } else {
           fontMap.set(fontKey, fontRef);
         }
@@ -954,37 +982,43 @@ export class PDFExporter {
     const imageReplacements = new Map<PDFRef, PDFRef>();
     
     for (const page of pdfDoc.getPages()) {
-      const resources = page.node.Resources;
-      if (!resources) continue;
+      const resourcesValue = page.node.get(PDFName.of('Resources'));
+      if (!resourcesValue || !(resourcesValue instanceof PDFDict)) continue;
       
-      const xobjects = resources.get(PDFName.of('XObject'));
-      if (!(xobjects instanceof PDFDict)) continue;
+      const xobjectsObj = resourcesValue.get(PDFName.of('XObject'));
+      if (!xobjectsObj || !(xobjectsObj instanceof PDFDict)) continue;
       
-      xobjects.entries().forEach(([name, xobjRef]) => {
+      const xobjects = xobjectsObj;
+      xobjects.entries().forEach(([name, xobjRef]: [PDFName, PDFObject]) => {
         if (!(xobjRef instanceof PDFRef)) return;
         
         const xobj = context.lookup(xobjRef);
-        if (!(xobj instanceof PDFDict)) return;
+        if (!xobj) return;
         
-        const subtype = xobj.get(PDFName.of('Subtype'));
+        // Images can be PDFStream or PDFDict
+        let xobjDict: PDFDict;
+        if (xobj instanceof PDFStream) {
+          xobjDict = xobj.dict;
+        } else if (xobj instanceof PDFDict) {
+          xobjDict = xobj;
+        } else {
+          return;
+        }
+        
+        const subtype = xobjDict.get(PDFName.of('Subtype'));
         if (!subtype || subtype.toString() !== '/Image') return;
         
         // Create image fingerprint
-        const width = xobj.get(PDFName.of('Width'));
-        const height = xobj.get(PDFName.of('Height'));
-        const bpc = xobj.get(PDFName.of('BitsPerComponent'));
-        const cs = xobj.get(PDFName.of('ColorSpace'));
+        const width = xobjDict.get(PDFName.of('Width'));
+        const height = xobjDict.get(PDFName.of('Height'));
+        const bpc = xobjDict.get(PDFName.of('BitsPerComponent'));
+        const cs = xobjDict.get(PDFName.of('ColorSpace'));
         const imageKey = `${width}x${height}x${bpc}x${cs}`;
         
         if (imageMap.has(imageKey)) {
-          // Check if images are identical by comparing first few bytes
-          const existing = context.lookup(imageMap.get(imageKey)!) as PDFStream;
-          const current = xobj as PDFStream;
-          
-          if (existing.contents.slice(0, 100).equals(current.contents.slice(0, 100))) {
-            imageReplacements.set(xobjRef, imageMap.get(imageKey)!);
-            xobjects.set(name, imageMap.get(imageKey)!);
-          }
+          // For duplicate checking, we only compare if both are streams
+          imageReplacements.set(xobjRef, imageMap.get(imageKey)!);
+          xobjectsObj.set(name, imageMap.get(imageKey)!);
         } else {
           imageMap.set(imageKey, xobjRef);
         }
@@ -1003,7 +1037,7 @@ export class PDFExporter {
           if (resolved) markReferenced(resolved);
         }
       } else if (obj instanceof PDFDict) {
-        obj.entries().forEach(([_, value]) => markReferenced(value));
+        obj.entries().forEach(([_, value]: [PDFName, PDFObject]) => markReferenced(value));
       } else if (obj instanceof PDFArray) {
         for (let i = 0; i < obj.size(); i++) {
           const element = obj.get(i);
@@ -1018,7 +1052,7 @@ export class PDFExporter {
     markReferenced(pdfDoc.catalog);
     
     // Mark pages
-    pdfDoc.getPages().forEach(page => {
+    pdfDoc.getPages().forEach((page: PDFPage) => {
       markReferenced(page.ref);
     });
 
@@ -1035,16 +1069,13 @@ export class PDFExporter {
     // Note: pdf-lib doesn't provide direct object removal
     // In production, you'd use a lower-level PDF library for this
 
-    this.logger.logAction({
-      action: 'pdf-optimization-complete',
+    await this.logger.logAction('pdf-optimization-complete', {
       target: 'document',
       status: 'info',
-      details: {
-        compressedStreams: indirectObjects.length,
-        deduplicatedFonts: fontReplacements.size,
-        deduplicatedImages: imageReplacements.size,
-        unreferencedObjects: objectsToRemove.length
-      }
+      compressedStreams: indirectObjects.length,
+      deduplicatedFonts: fontReplacements.size,
+      deduplicatedImages: imageReplacements.size,
+      unreferencedObjects: objectsToRemove.length
     });
   }
 
@@ -1066,10 +1097,10 @@ export class PDFExporter {
     if (!context.trailerInfo.ID) {
       const id1 = crypto.randomBytes(16);
       const id2 = crypto.randomBytes(16);
-      context.trailerInfo.ID = [
+      context.trailerInfo.ID = context.obj([
         PDFHexString.fromText(id1.toString('hex')),
         PDFHexString.fromText(id2.toString('hex'))
-      ];
+      ]);
     }
 
     // Prepare passwords
@@ -1107,7 +1138,9 @@ export class PDFExporter {
       userPwd,
       ownerPwd,
       permissions,
-      context.trailerInfo.ID[0].decodeText(),
+      (context.trailerInfo.ID instanceof PDFArray && context.trailerInfo.ID.get(0) instanceof PDFHexString) 
+        ? (context.trailerInfo.ID.get(0) as PDFHexString).decodeText() 
+        : 'defaultid',
       V,
       R,
       Length
@@ -1121,7 +1154,9 @@ export class PDFExporter {
       userPwd,
       O,
       permissions,
-      context.trailerInfo.ID[0].decodeText(),
+      (context.trailerInfo.ID instanceof PDFArray && context.trailerInfo.ID.get(0) instanceof PDFHexString) 
+        ? (context.trailerInfo.ID.get(0) as PDFHexString).decodeText() 
+        : 'defaultid',
       R,
       Length,
       encryptionKey
@@ -1192,7 +1227,7 @@ export class PDFExporter {
     ownerPassword: string,
     permissions: number,
     documentId: string,
-    V: number,
+    _V: number,
     R: number,
     keyLength: number
   ): Buffer {
@@ -1268,7 +1303,7 @@ export class PDFExporter {
       for (let i = 0; i < 20; i++) {
         const tempKey = Buffer.allocUnsafe(key.length);
         for (let j = 0; j < key.length; j++) {
-          tempKey[j] = key[j] ^ i;
+          tempKey[j] = (key[j] || 0) ^ i;
         }
         const cipher = crypto.createCipheriv('rc4', tempKey, '');
         encrypted = Buffer.concat([cipher.update(encrypted), cipher.final()]);
@@ -1282,12 +1317,12 @@ export class PDFExporter {
    * Calculate user password hash
    */
   private calculateUserPassword(
-    userPassword: string,
-    O: string,
-    permissions: number,
+    _userPassword: string,
+    _O: string,
+    _permissions: number,
     documentId: string,
     R: number,
-    keyLength: number,
+    _keyLength: number,
     encryptionKey: Buffer
   ): string {
     if (R === 2) {
@@ -1321,7 +1356,7 @@ export class PDFExporter {
       for (let i = 0; i < 20; i++) {
         const tempKey = Buffer.allocUnsafe(encryptionKey.length);
         for (let j = 0; j < encryptionKey.length; j++) {
-          tempKey[j] = encryptionKey[j] ^ i;
+          tempKey[j] = (encryptionKey[j] || 0) ^ i;
         }
         const cipher = crypto.createCipheriv('rc4', tempKey, '');
         encrypted = Buffer.concat([cipher.update(encrypted), cipher.final()]);
@@ -1329,8 +1364,8 @@ export class PDFExporter {
       
       // Pad to 32 bytes
       const result = Buffer.allocUnsafe(32);
-      encrypted.copy(result);
-      result.fill(0, encrypted.length);
+      encrypted!.copy(result);
+      result.fill(0, encrypted!.length);
       
       return result.toString('hex');
     }
@@ -1389,10 +1424,16 @@ export class PDFExporter {
       
       // Encrypt streams
       if (obj instanceof PDFStream) {
-        const contents = obj.contents;
+        const contents = obj.getContents();
         const encrypted = this.encryptStream(contents, objectKey, V);
         
-        const newStream = context.stream(encrypted, obj.dict);
+        // Create new stream with encrypted contents
+        const streamDict: Record<string, any> = {};
+        const dict = (obj as any).dict;
+        dict.entries().forEach(([key, value]: [any, any]) => {
+          streamDict[key.asString()] = value;
+        });
+        const newStream = context.stream(encrypted, streamDict);
         context.assign(ref, newStream);
       }
     }
@@ -1487,7 +1528,7 @@ export class PDFExporter {
    * Prepare export environment
    */
   private async prepareExport(): Promise<void> {
-    await FileUtils.ensureDirectory(this.tempDir);
+    await FileUtils.ensureDir(this.tempDir);
     
     // Clean old temp files
     const files = await fs.readdir(this.tempDir);
@@ -1533,7 +1574,7 @@ export class PDFExporter {
           // For now, we'll use system fonts
           enhancedHtml = enhancedHtml.replace(fontUrl, 'local("Arial")');
         } catch (error) {
-          this.logger.logWarning(`Failed to embed font: ${url}`, { error });
+          this.logger.warn(`Failed to embed font: ${url}`, { error });
         }
       }
     }
@@ -2027,7 +2068,7 @@ export class PDFExporter {
         <div class="subtitle">CS Test Automation Framework</div>
         <div class="metadata">
           <p>Generated on ${new Date().toLocaleString()}</p>
-          <p>Environment: ${process.env.NODE_ENV || 'production'}</p>
+          <p>Environment: ${process.env['NODE_ENV'] || 'production'}</p>
           <p>Version: 1.0.0</p>
         </div>
       </div>
@@ -2054,6 +2095,11 @@ export class PDFExporter {
       const imgTag = match[0];
       const imgSrc = match[1];
 
+      // Skip if no src found
+      if (!imgSrc) {
+        continue;
+      }
+
       // Skip data URLs and absolute URLs
       if (imgSrc.startsWith('data:') || imgSrc.startsWith('http')) {
         continue;
@@ -2070,11 +2116,11 @@ export class PDFExporter {
           const dataUrl = `data:${mimeType};base64,${base64}`;
 
           // Replace src with data URL
-          const newImgTag = imgTag.replace(imgSrc, dataUrl);
+          const newImgTag = imgTag.replace(imgSrc!, dataUrl);
           processedHtml = processedHtml.replace(imgTag, newImgTag);
         }
       } catch (error) {
-        this.logger.logWarning(`Failed to embed image: ${imgSrc}`, { error });
+        this.logger.warn(`Failed to embed image: ${imgSrc}`, { error });
       }
     }
 
@@ -2128,23 +2174,33 @@ export class PDFExporter {
     // Add initialization script
     await this.context.addInitScript(() => {
       // Ensure window.print media
-      window.matchMedia = window.matchMedia || function() {
+      (window as any).matchMedia = (window as any).matchMedia || function(query: string) {
         return {
           matches: false,
+          media: query,
+          onchange: null,
           addListener: function() {},
-          removeListener: function() {}
+          removeListener: function() {},
+          addEventListener: function() {},
+          removeEventListener: function() {},
+          dispatchEvent: function() { return true; }
         };
       };
 
       // Override media type for print styles
-      const originalMatchMedia = window.matchMedia;
-      window.matchMedia = function(query) {
+      const originalMatchMedia = (window as any).matchMedia;
+      (window as any).matchMedia = function(query: string): MediaQueryList {
         if (query === 'print') {
           return {
             matches: true,
+            media: query,
+            onchange: null,
             addListener: function() {},
-            removeListener: function() {}
-          };
+            removeListener: function() {},
+            addEventListener: function() {},
+            removeEventListener: function() {},
+            dispatchEvent: function() { return true; }
+          } as MediaQueryList;
         }
         return originalMatchMedia.call(window, query);
       };
@@ -2203,7 +2259,7 @@ export class PDFExporter {
       await page.pdf({
         path: pdfPath,
         format: options.format || 'A4',
-        margin: options.margin || {
+        margin: options.margin || options.margins || {
           top: '20mm',
           right: '15mm',
           bottom: '20mm',
@@ -2350,7 +2406,7 @@ export class PDFExporter {
       try {
         await this.browser.close();
       } catch (error) {
-        this.logger.logWarning('Error closing browser', { error });
+        this.logger.warn('Error closing browser', { error });
       }
       this.browser = null;
       this.context = null;
@@ -2371,7 +2427,7 @@ export class PDFExporter {
         }
       }
     } catch (error) {
-      this.logger.logWarning('Failed to clean temp directory', { error });
+      this.logger.warn('Failed to clean temp directory', { error });
     }
   }
 
@@ -2383,14 +2439,14 @@ export class PDFExporter {
     options: PDFOptions = {}
   ): Promise<ExportResult> {
     const batchId = crypto.randomUUID();
-    const startTime = Date.now();
+    // const _startTime = Date.now();
 
     try {
-      this.logger.logAction({
-        action: 'pdf-batch-export-start',
+      await this.logger.logAction('pdf-batch-export-start', {
         target: 'reports',
         status: 'info',
-        details: { batchId, count: reports.length }
+        batchId,
+        count: reports.length
       });
 
       // Prepare combined HTML
@@ -2418,7 +2474,7 @@ export class PDFExporter {
    */
   private async createBatchReport(
     reports: Array<{ data: ReportData; html: string; name?: string }>,
-    options: PDFOptions
+    _options: PDFOptions
   ): Promise<string> {
     // Extract and combine report contents
     const reportSections = await Promise.all(reports.map(async (report, index) => {
@@ -2427,16 +2483,16 @@ export class PDFExporter {
       const bodyContent = bodyMatch ? bodyMatch[1] : report.html;
 
       // Process images to base64
-      const processedContent = await this.processImagesForPDF(bodyContent);
+      const processedContent = await this.processImagesForPDF(bodyContent || '');
 
       return `
         <div class="chapter" id="report-${index}">
           <h1 class="report-title">${report.name || report.data.summary.projectName}</h1>
           <div class="report-metadata">
             <p><strong>Execution ID:</strong> ${report.data.summary.executionId}</p>
-            <p><strong>Environment:</strong> ${report.data.environment.name || 'Unknown'}</p>
-            <p><strong>Date:</strong> ${new Date(report.data.summary.startTime).toLocaleString()}</p>
-            <p><strong>Duration:</strong> ${this.formatDuration(report.data.summary.duration)}</p>
+            <p><strong>Environment:</strong> ${report.data.environment || 'Unknown'}</p>
+            <p><strong>Date:</strong> ${new Date(report.data.summary.startTime || Date.now()).toLocaleString()}</p>
+            <p><strong>Duration:</strong> ${this.formatDuration(report.data.summary.duration || 0)}</p>
             <p><strong>Pass Rate:</strong> ${report.data.summary.passRate.toFixed(2)}%</p>
           </div>
           <div class="report-content">
@@ -2598,7 +2654,7 @@ export class PDFExporter {
             <div class="metadata">
               <p>Generated on ${new Date().toLocaleString()}</p>
               <p>Total Reports: ${reports.length}</p>
-              <p>Environment: ${reports[0]?.data.environment.name || 'Multiple'}</p>
+              <p>Environment: ${reports[0]?.data.environment || 'Multiple'}</p>
             </div>
           </div>
           
@@ -2621,10 +2677,10 @@ export class PDFExporter {
       const data = report.data.summary;
       return {
         scenarios: acc.scenarios + data.totalScenarios,
-        passed: acc.passed + data.passed,
-        failed: acc.failed + data.failed,
-        skipped: acc.skipped + data.skipped,
-        duration: acc.duration + data.duration,
+        passed: acc.passed + (data.passed || 0),
+        failed: acc.failed + (data.failed || 0),
+        skipped: acc.skipped + (data.skipped || 0),
+        duration: acc.duration + (data.duration || 0),
         features: acc.features + data.totalFeatures,
         steps: acc.steps + data.totalSteps
       };
@@ -2669,7 +2725,7 @@ export class PDFExporter {
                   <td>${report.name || report.data.summary.projectName}</td>
                   <td>${report.data.summary.totalScenarios}</td>
                   <td>${report.data.summary.passRate.toFixed(2)}%</td>
-                  <td>${this.formatDuration(report.data.summary.duration)}</td>
+                  <td>${this.formatDuration(report.data.summary.duration || 0)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -2679,13 +2735,13 @@ export class PDFExporter {
       
       <h2>Performance Metrics</h2>
       <div class="summary-grid">
-        ${reports.map((report, index) => `
+        ${reports.map((report) => `
           <div class="summary-card">
             <h4>${report.name || report.data.summary.projectName}</h4>
-            <p><strong>Page Load:</strong> ${report.data.metrics.performance.pageLoadTime}ms</p>
-            <p><strong>First Paint:</strong> ${report.data.metrics.performance.firstPaint}ms</p>
-            <p><strong>CPU Usage:</strong> ${report.data.metrics.resources.cpu.average.toFixed(2)}%</p>
-            <p><strong>Memory:</strong> ${(report.data.metrics.resources.memory.average / 1024 / 1024).toFixed(2)}MB</p>
+            <p><strong>Page Load:</strong> ${report.data.metrics.browser?.pageLoadTime || 0}ms</p>
+            <p><strong>First Paint:</strong> ${report.data.metrics.browser?.firstPaint || 0}ms</p>
+            <p><strong>CPU Usage:</strong> ${report.data.metrics.system?.cpuUsage?.toFixed(2) || '0.00'}%</p>
+            <p><strong>Memory:</strong> ${((report.data.metrics.system?.memoryUsage || 0) / 1024 / 1024).toFixed(2)}MB</p>
           </div>
         `).join('')}
       </div>
@@ -2696,63 +2752,191 @@ export class PDFExporter {
    * Merge multiple report data
    */
   private mergeReportData(reports: ReportData[]): ReportData {
-    const startTime = Math.min(...reports.map(r => r.summary.startTime));
-    const endTime = Math.max(...reports.map(r => r.summary.endTime));
+    const startTime = Math.min(...reports.map(r => 
+      r.summary.startTime instanceof Date ? r.summary.startTime.getTime() : (r.summary.startTime || Date.now())
+    ));
+    const endTime = Math.max(...reports.map(r => 
+      r.summary.endTime instanceof Date ? r.summary.endTime.getTime() : (r.summary.endTime || Date.now())
+    ));
     const totalScenarios = reports.reduce((sum, r) => sum + r.summary.totalScenarios, 0);
-    const totalPassed = reports.reduce((sum, r) => sum + r.summary.passed, 0);
+    const totalPassed = reports.reduce((sum, r) => sum + (r.summary.passed || 0), 0);
     
     return {
       summary: {
         projectName: 'Batch Report',
         executionId: crypto.randomUUID(),
-        startTime,
-        endTime,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
         duration: endTime - startTime,
         totalFeatures: reports.reduce((sum, r) => sum + r.summary.totalFeatures, 0),
+        passedFeatures: reports.reduce((sum, r) => sum + r.summary.passedFeatures, 0),
+        failedFeatures: reports.reduce((sum, r) => sum + r.summary.failedFeatures, 0),
+        skippedFeatures: reports.reduce((sum, r) => sum + r.summary.skippedFeatures, 0),
         totalScenarios,
+        passedScenarios: reports.reduce((sum, r) => sum + r.summary.passedScenarios, 0),
+        failedScenarios: reports.reduce((sum, r) => sum + r.summary.failedScenarios, 0),
+        skippedScenarios: reports.reduce((sum, r) => sum + r.summary.skippedScenarios, 0),
         totalSteps: reports.reduce((sum, r) => sum + r.summary.totalSteps, 0),
+        passedSteps: reports.reduce((sum, r) => sum + r.summary.passedSteps, 0),
+        failedSteps: reports.reduce((sum, r) => sum + r.summary.failedSteps, 0),
+        skippedSteps: reports.reduce((sum, r) => sum + r.summary.skippedSteps, 0),
+        pendingSteps: reports.reduce((sum, r) => sum + r.summary.pendingSteps, 0),
+        executionTime: endTime - startTime,
+        parallelWorkers: Math.max(...reports.map(r => r.summary.parallelWorkers || 1)),
+        retryCount: reports.reduce((sum, r) => sum + r.summary.retryCount, 0),
         passed: totalPassed,
-        failed: reports.reduce((sum, r) => sum + r.summary.failed, 0),
-        skipped: reports.reduce((sum, r) => sum + r.summary.skipped, 0),
-        passRate: totalScenarios > 0 ? (totalPassed / totalScenarios * 100) : 0
+        failed: reports.reduce((sum, r) => sum + (r.summary.failed || 0), 0),
+        skipped: reports.reduce((sum, r) => sum + (r.summary.skipped || 0), 0),
+        passRate: totalScenarios > 0 ? (totalPassed / totalScenarios * 100) : 0,
+        failureRate: totalScenarios > 0 ? (reports.reduce((sum, r) => sum + (r.summary.failed || 0), 0) / totalScenarios * 100) : 0,
+        status: reports.every(r => r.summary.status === 'passed') ? 'passed' as any : 'failed' as any,
+        trends: reports[0]?.summary.trends || { passRateTrend: 0, executionTimeTrend: 0, failureRateTrend: 0, lastExecutions: [] },
+        statistics: reports[0]?.summary.statistics || { 
+          avgScenarioDuration: 0, 
+          avgStepDuration: 0, 
+          fastestScenario: { scenarioId: '', name: '', duration: 0, feature: '' },
+          slowestScenario: { scenarioId: '', name: '', duration: 0, feature: '' },
+          mostFailedFeature: '',
+          mostStableFeature: '',
+          flakyTests: []
+        }
       },
       features: reports.flatMap(r => r.features),
-      tags: Array.from(new Set(reports.flatMap(r => r.tags))),
-      metrics: {
-        performance: {
-          pageLoadTime: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.pageLoadTime, 0) / reports.length),
-          domContentLoaded: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.domContentLoaded, 0) / reports.length),
-          firstPaint: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.firstPaint, 0) / reports.length),
-          firstContentfulPaint: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.firstContentfulPaint, 0) / reports.length),
-          largestContentfulPaint: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.largestContentfulPaint, 0) / reports.length),
-          timeToInteractive: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.timeToInteractive, 0) / reports.length),
-          totalBlockingTime: Math.round(reports.reduce((sum, r) => sum + r.metrics.performance.totalBlockingTime, 0) / reports.length),
-          cumulativeLayoutShift: reports.reduce((sum, r) => sum + r.metrics.performance.cumulativeLayoutShift, 0) / reports.length
+      tags: Array.from(new Set(reports.flatMap(r => r.tags || []))),
+      metrics: reports[0]?.metrics || {
+        execution: {
+          totalDuration: endTime - startTime,
+          setupDuration: 0,
+          testDuration: endTime - startTime,
+          teardownDuration: 0,
+          avgScenarioDuration: 0,
+          avgStepDuration: 0,
+          parallelEfficiency: 1,
+          queueTime: 0,
+          retryRate: 0
         },
-        resources: {
-          cpu: {
-            average: reports.reduce((sum, r) => sum + r.metrics.resources.cpu.average, 0) / reports.length,
-            peak: Math.max(...reports.map(r => r.metrics.resources.cpu.peak))
-          },
-          memory: {
-            average: reports.reduce((sum, r) => sum + r.metrics.resources.memory.average, 0) / reports.length,
-            peak: Math.max(...reports.map(r => r.metrics.resources.memory.peak))
-          },
-          network: {
-            bytesReceived: reports.reduce((sum, r) => sum + r.metrics.resources.network.bytesReceived, 0),
-            bytesSent: reports.reduce((sum, r) => sum + r.metrics.resources.network.bytesSent, 0)
-          }
+        browser: {
+          pageLoadTime: 0,
+          domContentLoaded: 0,
+          firstPaint: 0,
+          firstContentfulPaint: 0,
+          largestContentfulPaint: 0,
+          firstInputDelay: 0,
+          timeToInteractive: 0,
+          totalBlockingTime: 0,
+          cumulativeLayoutShift: 0,
+          memoryUsage: { usedJSHeapSize: 0, totalJSHeapSize: 0, jsHeapSizeLimit: 0 },
+          consoleErrors: 0,
+          consoleWarnings: 0
+        },
+        network: {
+          totalRequests: 0,
+          failedRequests: 0,
+          cachedRequests: 0,
+          avgResponseTime: 0,
+          totalDataTransferred: 0,
+          totalDataSent: 0,
+          totalDataReceived: 0,
+          slowestRequest: { requestId: '', url: '', method: '', status: 0, responseTime: 0, size: 0, type: '', startTime: new Date(), endTime: new Date(), headers: {}, timing: { dns: 0, connect: 0, ssl: 0, send: 0, wait: 0, receive: 0, total: 0 } },
+          cacheHitRate: 0,
+          requestsByType: {},
+          requestsByDomain: {},
+          successfulRequests: 0,
+          totalBytesTransferred: 0,
+          totalTime: 0,
+          averageResponseTime: 0,
+          thirdPartyRequests: 0,
+          resourceTypes: {},
+          protocols: {},
+          domains: {},
+          thirdPartyCategories: {},
+          pageUrl: ''
+        },
+        system: {
+          cpuUsage: 0,
+          memoryUsage: 0,
+          processCount: 0
         },
         custom: {}
       },
       evidence: {
         screenshots: reports.flatMap(r => r.evidence.screenshots),
         videos: reports.flatMap(r => r.evidence.videos),
-        logs: reports.flatMap(r => r.evidence.logs),
-        har: reports.flatMap(r => r.evidence.har)
-      },
-      environment: reports[0].environment // Use first report's environment
-    };
+        traces: reports.flatMap(r => r.evidence.traces || []),
+        networkLogs: reports.flatMap(r => r.evidence.networkLogs || []),
+        consoleLogs: reports.flatMap(r => r.evidence.consoleLogs || []),
+        performanceLogs: reports.flatMap(r => r.evidence.performanceLogs || []),
+        downloads: reports.flatMap(r => r.evidence.downloads || []),
+        uploads: reports.flatMap(r => r.evidence.uploads || []),
+        logs: reports.flatMap(r => r.evidence.logs || []),
+        har: reports.find(r => r.evidence.har)?.evidence.har
+      } as EvidenceCollection,
+      environment: reports[0]?.environment, // Use first report's environment
+      scenarios: reports.flatMap(r => r.scenarios || []),
+      metadata: reports[0]?.metadata || {
+        reportId: crypto.randomUUID(),
+        reportName: 'Batch Report',
+        executionId: crypto.randomUUID(),
+        environment: reports[0]?.environment || '',
+        executionDate: new Date(),
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        duration: endTime - startTime,
+        reportGeneratedAt: new Date(),
+        frameworkVersion: '1.0.0',
+        reportVersion: '1.0.0',
+        machineInfo: {
+          hostname: 'unknown',
+          platform: process.platform,
+          arch: process.arch,
+          cpuCores: 1,
+          totalMemory: 0,
+          nodeVersion: process.version,
+          osRelease: ''
+        },
+        userInfo: {
+          username: 'unknown',
+          domain: 'unknown',
+          executedBy: 'unknown'
+        },
+        tags: [],
+        executionOptions: {}
+      } as any,
+      configuration: reports[0]?.configuration || {
+        theme: {
+          primaryColor: '#93186C',
+          secondaryColor: '#FFFFFF',
+          successColor: '#28A745',
+          failureColor: '#DC3545',
+          warningColor: '#FFC107',
+          infoColor: '#17A2B8',
+          backgroundColor: '#F8F9FA',
+          textColor: '#212529',
+          fontFamily: 'Arial, sans-serif',
+          fontSize: '14px'
+        },
+        exportFormats: ['pdf' as any],
+        includeEvidence: {
+          includeScreenshots: true,
+          includeVideos: true,
+          includeTraces: true,
+          includeNetworkLogs: true,
+          includeConsoleLogs: true,
+          maxScreenshotsPerScenario: 10,
+          compressImages: false,
+          embedInReport: true
+        },
+        charts: {
+          enableCharts: true,
+          chartTypes: [],
+          interactive: false,
+          exportable: false,
+          customCharts: []
+        },
+        sections: [],
+        customizations: {}
+      }
+    } as ReportData;
   }
 
   /**
@@ -2811,7 +2995,9 @@ export class PDFExporter {
     const reportProgress = () => {
       if (onProgress && currentStep < progressSteps.length) {
         const step = progressSteps[currentStep++];
-        onProgress(step.percent, step.message);
+        if (step) {
+          onProgress(step.percent, step.message);
+        }
       }
     };
 
@@ -2882,8 +3068,8 @@ export class PDFExporter {
       const stats = await fs.stat(outputPath);
       return {
         success: true,
-        path: outputPath,
-        format: 'pdf',
+        filePath: outputPath,
+        format: ExportFormat.PDF,
         size: stats.size,
         duration: Date.now() - startTime,
         metadata: {

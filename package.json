@@ -190,6 +190,8 @@
     "update:ai": "node scripts/update-ai-models.js"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@playwright/test": "^1.40.1",
     "@types/node": "^20.10.5",
     "@types/ws": "^8.18.1",
@@ -199,12 +201,14 @@
     "csv-parse": "^5.6.0",
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.3.1",
+    "fluent-ffmpeg": "^2.1.2",
     "glob": "^11.0.2",
     "jsonpath": "^1.1.1",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.16.0",
     "mysql2": "^3.14.1",
     "oracledb": "^6.8.0",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.16.0",
     "playwright": "^1.40.1",
     "redis": "^5.1.1",
@@ -219,6 +223,7 @@
     "xpath": "^0.0.34"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.27",
     "@types/jsonpath": "^0.2.4",
     "@types/mssql": "^9.1.7",
     "@types/oracledb": "^6.6.0",

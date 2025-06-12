@@ -95,6 +95,48 @@ export class CSDatabase {
   }
 
   /**
+   * Execute query (alias for query method)
+   */
+  async execute(sql: string, params?: any[]): Promise<ResultSet> {
+    return this.query(sql, params);
+  }
+
+  /**
+   * Execute query with execution plan
+   */
+  async executeWithPlan(sql: string, params?: any[]): Promise<ResultSet> {
+    try {
+      this.validateConnection();
+      
+      const actionLogger = ActionLogger.getInstance();
+      await actionLogger.logDatabase('queryWithPlan', sql, 0, undefined, { alias: this.connectionAlias, params });
+      const startTime = Date.now();
+      
+      // Use the context's executeWithPlan method
+      const result = await this.queryContext.executeWithPlan(sql, params);
+      
+      const duration = Date.now() - startTime;
+      await actionLogger.logDatabase('queryWithPlanResult', sql, duration, result.rowCount, { 
+        alias: this.connectionAlias,
+        executionPlan: this.queryContext.getLastExecutionPlan()
+      });
+      
+      // Store for chaining
+      this.storeResultForChaining(result);
+      
+      return result;
+    } catch (error) {
+      const actionLogger = ActionLogger.getInstance();
+      await actionLogger.logDatabase('queryWithPlanError', this.connectionAlias, 0, undefined, { 
+        error: (error as Error).message, 
+        sql, 
+        params 
+      });
+      throw this.enhanceError(error as Error, 'QUERY_WITH_PLAN_FAILED', { sql, params });
+    }
+  }
+
+  /**
    * Execute query with parameters
    */
   async query<T = any>(sql: string, params?: any[], options?: QueryOptions): Promise<ResultSet> {
@@ -514,6 +556,21 @@ export class CSDatabase {
    */
   getPoolStats(): any {
     return this.connectionManager.getPoolStats();
+  }
+
+  /**
+   * Get the database adapter
+   */
+  getAdapter(): DatabaseAdapter {
+    return this.adapter;
+  }
+
+  /**
+   * Get the current connection
+   */
+  async getConnection(): Promise<DatabaseConnection> {
+    this.validateConnection();
+    return this.connectionManager.getConnection();
   }
 
   /**

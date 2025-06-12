@@ -276,7 +276,8 @@ export interface ValidationResult {
  * Validation rule interface
  */
 export interface ValidationRule {
-    type: 'unique' | 'notNull' | 'inList' | 'pattern' | 'range' | 'dataType' | 'length' | 'custom';
+    type: 'unique' | 'notNull' | 'inList' | 'pattern' | 'range' | 'dataType' | 'length' | 'custom' | 'equals';
+    value?: any; // For equals validation
     values?: any[]; // For inList
     pattern?: string; // For pattern (regex)
     min?: number; // For range
@@ -539,4 +540,51 @@ export interface DatabaseError extends Error {
     parameters?: any[];
     context?: Record<string, any>;
     solution?: string;
+}
+
+/**
+ * Stored procedure parameter interface
+ */
+export interface ProcedureParameter {
+    name: string;
+    value: any;
+    type: string;
+    direction: 'IN' | 'OUT' | 'INOUT' | 'RETURN';
+    length?: number;
+    precision?: number;
+    scale?: number;
+}
+
+/**
+ * Stored procedure call result interface
+ */
+export interface StoredProcedureCall {
+    resultSets?: QueryResult[];
+    outputParameters?: Record<string, any>;
+    returnValue?: any;
+    rowsAffected?: number[];
+    messages?: Array<{
+        message: string;
+        severity: number;
+        state?: number;
+        lineNumber?: number;
+        procedureName?: string;
+    }>;
+}
+
+/**
+ * Stored procedure metadata
+ */
+export interface StoredProcedureMetadata {
+    name: string;
+    schema: string;
+    parameters?: Array<{
+        name: string;
+        type: string;
+        direction: string;
+        defaultValue?: any;
+    }>;
+    returnType?: string;
+    created?: Date;
+    modified?: Date;
 }

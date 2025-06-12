@@ -273,7 +273,18 @@ export class ReportAggregator {
             },
             cacheHitRate: 0,
             requestsByType: {},
-            requestsByDomain: {}
+            requestsByDomain: {},
+            // Additional required properties
+            successfulRequests: totalRequests - failedRequests,
+            totalBytesTransferred: totalDataTransferred,
+            totalTime: avgResponseTime * totalRequests,
+            averageResponseTime: avgResponseTime,
+            thirdPartyRequests: 0,
+            resourceTypes: {},
+            protocols: {},
+            domains: {},
+            thirdPartyCategories: {},
+            pageUrl: ''
         };
 
         // Calculate system metrics

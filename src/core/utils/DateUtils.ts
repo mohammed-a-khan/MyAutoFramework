@@ -1157,6 +1157,11 @@ export class DateUtils {
     return new Date(date.getTime());
   }
 
+  // Format date and time
+  public static formatDateTime(date: Date, format: string = 'YYYY-MM-DD HH:mm:ss'): string {
+    return this.format(date, format);
+  }
+
   // Min/Max
   public static min(...dates: Date[]): Date {
     return new Date(Math.min(...dates.map(d => d.getTime())));

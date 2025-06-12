@@ -1,5 +1,5 @@
 import { ReportConfig } from '../core/ReportConfig';
-import { ReportData, ReportTheme } from '../types/reporting.types';
+import { ReportTheme } from '../types/reporting.types';
 import { Logger } from '../../core/utils/Logger';
 import { DateUtils } from '../../core/utils/DateUtils';
 import * as fs from 'fs';
@@ -11,18 +11,16 @@ import * as path from 'path';
  */
 export class HTMLReportGenerator {
     private logger: Logger;
-    private config: ReportConfig;
-    private theme: ReportTheme;
+    private theme!: ReportTheme;
 
     constructor() {
-        this.logger = new Logger('HTMLReportGenerator');
+        this.logger = Logger.getInstance('HTMLReportGenerator');
     }
 
     /**
      * Initialize the generator
      */
     public async initialize(config: ReportConfig): Promise<void> {
-        this.config = config;
         this.theme = config.getTheme();
         this.logger.info('HTML report generator initialized');
     }
@@ -134,7 +132,7 @@ ${this.generateCompleteJavaScript(data)}
             return html;
 
         } catch (error) {
-            this.logger.error('Failed to generate HTML report', error);
+            this.logger.error('Failed to generate HTML report', error as Error);
             throw error;
         }
     }
@@ -169,13 +167,13 @@ ${this.generateCompleteJavaScript(data)}
     --cs-primary: ${this.theme.primaryColor};
     --cs-primary-rgb: ${this.hexToRgb(this.theme.primaryColor).join(', ')};
     --cs-secondary: ${this.theme.secondaryColor};
-    --cs-accent: ${this.theme.accentColor};
+    --cs-accent: ${this.theme.secondaryColor};
     --cs-success: ${this.theme.successColor};
-    --cs-error: ${this.theme.errorColor};
+    --cs-error: ${this.theme.failureColor};
     --cs-warning: ${this.theme.warningColor};
     --cs-info: ${this.theme.infoColor};
     
-    --cs-gradient-primary: linear-gradient(135deg, var(--cs-primary) 0%, var(--cs-accent) 100%);
+    --cs-gradient-primary: linear-gradient(135deg, var(--cs-primary) 0%, var(--cs-secondary) 100%);
     --cs-gradient-success: linear-gradient(135deg, var(--cs-success) 0%, #20C997 100%);
     --cs-gradient-error: linear-gradient(135deg, var(--cs-error) 0%, #C82333 100%);
     --cs-gradient-warning: linear-gradient(135deg, var(--cs-warning) 0%, #E0A800 100%);
@@ -1280,10 +1278,10 @@ a:hover {
                 colors: options.colors || [
                     '${this.theme.primaryColor}',
                     '${this.theme.successColor}',
-                    '${this.theme.errorColor}',
+                    '${this.theme.failureColor}',
                     '${this.theme.warningColor}',
                     '${this.theme.infoColor}',
-                    '${this.theme.accentColor}'
+                    '${this.theme.secondaryColor}'
                 ],
                 animations: options.animations !== false,
                 ...options
@@ -1929,7 +1927,7 @@ a:hover {
                 barSpacing: options.barSpacing || 10,
                 colors: options.colors || {
                     passed: '${this.theme.successColor}',
-                    failed: '${this.theme.errorColor}',
+                    failed: '${this.theme.failureColor}',
                     skipped: '${this.theme.warningColor}'
                 },
                 ...options
@@ -2458,7 +2456,7 @@ a:hover {
             <!-- Gradients -->
             <linearGradient id="cs-gradient-primary" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" style="stop-color:${this.theme.primaryColor};stop-opacity:1" />
-                <stop offset="100%" style="stop-color:${this.theme.accentColor};stop-opacity:1" />
+                <stop offset="100%" style="stop-color:${this.theme.secondaryColor};stop-opacity:1" />
             </linearGradient>
             
             <linearGradient id="cs-gradient-success" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -2467,7 +2465,7 @@ a:hover {
             </linearGradient>
             
             <linearGradient id="cs-gradient-error" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:${this.theme.errorColor};stop-opacity:1" />
+                <stop offset="0%" style="stop-color:${this.theme.failureColor};stop-opacity:1" />
                 <stop offset="100%" style="stop-color:#C82333;stop-opacity:1" />
             </linearGradient>
             
@@ -2527,7 +2525,7 @@ a:hover {
                 <div class="cs-header-meta">
                     <div class="cs-header-meta-item">
                         <svg class="cs-header-meta-icon"><use xlink:href="#icon-clock"></use></svg>
-                        <span>Generated: ${DateUtils.formatDate(new Date(metadata.reportGeneratedAt), 'MMMM DD, YYYY HH:mm:ss')}</span>
+                        <span>Generated: ${DateUtils.formatDateTime(new Date(metadata.reportGeneratedAt), 'MMMM DD, YYYY HH:mm:ss')}</span>
                     </div>
                     <div class="cs-header-meta-item">
                         <svg class="cs-header-meta-icon"><use xlink:href="#icon-clock"></use></svg>
@@ -2934,7 +2932,7 @@ a:hover {
                             <div class="cs-logs">
                                 ${step.logs.map((log: any) => `
                                     <div class="cs-log ${log.level}">
-                                        <span class="cs-log-time">${DateUtils.formatDate(new Date(log.timestamp), 'HH:mm:ss.SSS')}</span>
+                                        <span class="cs-log-time">${DateUtils.formatDateTime(new Date(log.timestamp), 'HH:mm:ss.SSS')}</span>
                                         <span class="cs-log-message">${this.escapeHtml(log.message)}</span>
                                     </div>
                                 `).join('')}
@@ -3025,7 +3023,7 @@ a:hover {
     private generateMetricCards(summary: any): string {
         if (!summary) return '';
         
-        return Object.entries(summary).map(([key, value]: [string, any]) => `
+        return Object.entries(summary).map(([, value]: [string, any]) => `
             <div class="cs-card">
                 <div class="cs-metric-value">${value.value}</div>
                 <div class="cs-metric-label">${value.label}</div>
@@ -3078,7 +3076,7 @@ a:hover {
     /**
      * Generate metrics trends
      */
-    private generateMetricsTrends(trends: any): string {
+    private generateMetricsTrends(_trends: any): string {
         return `
             <div class="cs-card cs-mt-4">
                 <div class="cs-card-header">
@@ -3148,9 +3146,9 @@ a:hover {
     private hexToRgb(hex: string): number[] {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? [
-            parseInt(result[1], 16),
-            parseInt(result[2], 16),
-            parseInt(result[3], 16)
+            parseInt(result[1]!, 16),
+            parseInt(result[2]!, 16),
+            parseInt(result[3]!, 16)
         ] : [0, 0, 0];
     }
 
@@ -3167,7 +3165,7 @@ a:hover {
             fs.writeFileSync(outputPath, html, 'utf8');
             this.logger.info(`HTML report saved to: ${outputPath}`);
         } catch (error) {
-            this.logger.error('Failed to save HTML report', error);
+            this.logger.error('Failed to save HTML report', error as Error);
             throw error;
         }
     }

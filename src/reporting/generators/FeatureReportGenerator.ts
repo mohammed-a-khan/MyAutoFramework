@@ -2,25 +2,18 @@
 
 import { 
   FeatureReport, 
-  ScenarioReport,
   ScenarioSummary, 
   StepReport,
   TestStatus,
   ReportTheme,
   STATUS_COLORS,
   STATUS_ICONS,
-  ExecutionHistory,
   BackgroundReport,
-  HookReport,
   ErrorDetails,
   ActionLog,
-  Screenshot,
-  ConsoleLog,
   DataTableRow,
   DocString,
-  Embedding,
-  AIHealingAttempt,
-  ScenarioEvidence
+  Embedding
 } from '../types/reporting.types';
 import { Logger } from '../../core/utils/Logger';
 
@@ -82,7 +75,7 @@ ${this.generateFeatureScripts()}`;
         </div>
     </div>
     <ul class="nav-list">
-        ${features.map((feature, index) => `
+        ${features.map((feature) => `
         <li class="nav-item ${feature.status}" data-feature-id="${feature.featureId}">
             <div class="nav-item-header">
                 <span class="nav-status-icon">${STATUS_ICONS[feature.status]}</span>
@@ -115,7 +108,7 @@ ${this.generateFeatureScripts()}`;
     ${this.generateFeatureStats(feature)}
     ${this.generateFeatureTags(feature.tags)}
     ${feature.background ? this.generateBackground(feature.background) : ''}
-    ${this.generateScenarios(feature.scenarios, theme)}
+    ${this.generateScenarios(feature.scenarios)}
     ${this.generateFeatureTimeline(feature)}
     ${this.generateFeatureErrors(feature)}
 </article>`;
@@ -296,7 +289,7 @@ ${this.generateFeatureScripts()}`;
   /**
    * Generate scenarios section
    */
-  private generateScenarios(scenarios: ScenarioSummary[], theme: ReportTheme): string {
+  private generateScenarios(scenarios: ScenarioSummary[]): string {
     return `
 <section class="feature-scenarios">
     <h3 class="section-title">
@@ -314,7 +307,7 @@ ${this.generateFeatureScripts()}`;
     </div>
     
     <div class="scenarios-container">
-        ${scenarios.map((scenario, index) => this.generateScenario(scenario, index, theme)).join('')}
+        ${scenarios.map((scenario) => this.generateScenario(scenario)).join('')}
     </div>
 </section>`;
   }
@@ -322,7 +315,7 @@ ${this.generateFeatureScripts()}`;
   /**
    * Generate individual scenario
    */
-  private generateScenario(scenario: ScenarioSummary, index: number, theme: ReportTheme): string {
+  private generateScenario(scenario: ScenarioSummary): string {
     const hasEvidence = false; // ScenarioSummary doesn't have evidence details
     
     return `
@@ -334,8 +327,8 @@ ${this.generateFeatureScripts()}`;
         
         <div class="scenario-info">
             <h4 class="scenario-title">
-                <span class="scenario-keyword">${scenario.keyword}:</span>
-                ${scenario.scenario}
+                <span class="scenario-keyword">${scenario.keyword || 'Scenario'}:</span>
+                ${scenario.name}
             </h4>
             ${scenario.description ? `<p class="scenario-description">${scenario.description}</p>` : ''}
             
@@ -358,13 +351,13 @@ ${this.generateFeatureScripts()}`;
                 </span>
                 ` : ''}
                 
-                ${scenario.dataSet ? `
+                ${scenario.parameters && Object.keys(scenario.parameters).length > 0 ? `
                 <span class="metadata-item dataset">
                     <svg viewBox="0 0 16 16">
                         <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
                         <path d="M8.646 6.646a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1 0 .708l-2 2a.5.5 0 0 1-.708-.708L10.293 9 8.646 7.354a.5.5 0 0 1 0-.708zm-1.292 0a.5.5 0 0 0-.708 0l-2 2a.5.5 0 0 0 0 .708l2 2a.5.5 0 0 0 .708-.708L5.707 9l1.647-1.646a.5.5 0 0 0 0-.708z"/>
                     </svg>
-                    ${scenario.dataSet.name}
+                    Data Set
                 </span>
                 ` : ''}
                 
@@ -391,12 +384,25 @@ ${this.generateFeatureScripts()}`;
     </div>
     
     <div class="scenario-content" id="scenario-content-${scenario.scenarioId}">
-        <!-- Scenario details would be loaded dynamically or from a separate data structure -->
         <div class="scenario-summary">
             <p>Status: ${scenario.status}</p>
             <p>Duration: ${this.formatDuration(scenario.duration)}</p>
             ${scenario.retryCount > 0 ? `<p>Retries: ${scenario.retryCount}</p>` : ''}
         </div>
+        
+        ${scenario.steps && scenario.steps.length > 0 ? `
+        <div class="scenario-steps">
+            <h5>Steps</h5>
+            ${scenario.steps.map((step) => this.generateSimpleStep(step)).join('')}
+        </div>
+        ` : ''}
+        
+        ${scenario.error ? this.generateSimpleError(scenario.error, scenario.errorStack) : ''}
+        
+        ${(scenario.screenshots && scenario.screenshots.length > 0) || 
+          (scenario.videos && scenario.videos.length > 0) || 
+          (scenario.logs && scenario.logs.length > 0) ? 
+          this.generateSimpleEvidence(scenario) : ''}
     </div>
 </div>`;
   }
@@ -432,24 +438,93 @@ ${this.generateFeatureScripts()}`;
   }
 
   /**
-   * Generate hooks section
+   * Generate simple step for ScenarioSummary
    */
-  private generateHooks(hooks: HookReport[], title: string): string {
+  private generateSimpleStep(step: any): string {
     return `
-<div class="hooks-section">
-    <h5 class="hooks-title">${title}</h5>
-    <div class="hooks-list">
-        ${hooks.map(hook => `
-        <div class="hook ${hook.status}">
-            <span class="hook-type">${hook.type}</span>
-            <span class="hook-status">${STATUS_ICONS[hook.status]}</span>
-            <span class="hook-duration">${hook.duration}ms</span>
-            ${hook.error ? `<div class="hook-error">${hook.error.message}</div>` : ''}
-        </div>
-        `).join('')}
-    </div>
-</div>`;
+    <div class="step ${step.status}">
+        <span class="step-keyword">${step.keyword}</span>
+        <span class="step-text">${step.text}</span>
+        <span class="step-status">${STATUS_ICONS[step.status as TestStatus]}</span>
+        ${step.duration ? `<span class="step-duration">${step.duration}ms</span>` : ''}
+        ${step.error ? `<div class="step-error">${step.error}</div>` : ''}
+    </div>`;
   }
+
+  /**
+   * Generate simple error for ScenarioSummary
+   */
+  private generateSimpleError(error: string, errorStack?: string): string {
+    return `
+    <div class="scenario-error">
+        <h5 class="error-title">Error Details</h5>
+        <div class="error-message">${error}</div>
+        ${errorStack ? `
+        <details class="error-stack-container">
+            <summary>Stack Trace</summary>
+            <pre class="error-stack">${errorStack}</pre>
+        </details>
+        ` : ''}
+    </div>`;
+  }
+
+  /**
+   * Generate simple evidence for ScenarioSummary
+   */
+  private generateSimpleEvidence(scenario: ScenarioSummary): string {
+    return `
+    <div class="scenario-evidence">
+        <h5 class="evidence-title">Evidence</h5>
+        
+        ${scenario.screenshots && scenario.screenshots.length > 0 ? `
+        <div class="evidence-section screenshots">
+            <h6>Screenshots (${scenario.screenshots.length})</h6>
+            <div class="screenshot-gallery">
+                ${scenario.screenshots.map((screenshot, index) => `
+                <div class="screenshot-item">
+                    <img src="${screenshot.path}" 
+                         alt="${screenshot.name || `Screenshot ${index + 1}`}" 
+                         onclick="openImageModal(this.src)">
+                    <span class="screenshot-label">${screenshot.name || `Screenshot ${index + 1}`}</span>
+                </div>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
+        
+        ${scenario.videos && scenario.videos.length > 0 ? `
+        <div class="evidence-section videos">
+            <h6>Videos (${scenario.videos.length})</h6>
+            <div class="video-list">
+                ${scenario.videos.map((video, index) => `
+                <div class="video-item">
+                    <a href="${video.path}" target="_blank">
+                        ${video.name || `Video ${index + 1}`}
+                    </a>
+                </div>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
+        
+        ${scenario.logs && scenario.logs.length > 0 ? `
+        <div class="evidence-section logs">
+            <h6>Console Logs</h6>
+            <div class="console-logs">
+                ${scenario.logs.slice(0, 10).map(log => `
+                <div class="log-entry ${log.level}">
+                    <span class="log-timestamp">${this.formatTime(log.timestamp)}</span>
+                    <span class="log-level">[${log.level}]</span>
+                    <span class="log-message">${log.message}</span>
+                </div>
+                `).join('')}
+                ${scenario.logs.length > 10 ? `<div class="logs-truncated">... and ${scenario.logs.length - 10} more logs</div>` : ''}
+            </div>
+        </div>
+        ` : ''}
+    </div>`;
+  }
+
 
   /**
    * Generate data table
@@ -526,7 +601,7 @@ ${this.generateFeatureScripts()}`;
   private generateEmbeddings(embeddings: Embedding[]): string {
     return `
 <div class="embeddings">
-    ${embeddings.map((embed, index) => {
+    ${embeddings.map((embed) => {
       if (embed.mimeType.startsWith('image/')) {
         return `
         <div class="embedding image-embedding">
@@ -550,67 +625,6 @@ ${this.generateFeatureScripts()}`;
 </div>`;
   }
 
-  /**
-   * Generate scenario error details
-   */
-  private generateScenarioError(error: ErrorDetails): string {
-    return `
-<div class="scenario-error">
-    <h5 class="error-title">
-        <svg class="error-icon" viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-        </svg>
-        Error Details
-    </h5>
-    
-    <div class="error-content">
-        <div class="error-type">${error.type}</div>
-        <div class="error-message">${error.message}</div>
-        
-        ${error.stack ? `
-        <details class="error-stack-container">
-            <summary>Stack Trace</summary>
-            <pre class="error-stack">${this.formatStackTrace(error.stack)}</pre>
-        </details>
-        ` : ''}
-        
-        <div class="error-context">
-            <div class="context-item">
-                <span class="context-label">Location:</span>
-                <span class="context-value">${error.location.file}:${error.location.line}</span>
-            </div>
-            
-            ${error.context.browser ? `
-            <div class="context-item">
-                <span class="context-label">Browser:</span>
-                <span class="context-value">${error.context.browser}</span>
-            </div>
-            ` : ''}
-            
-            ${error.context.url ? `
-            <div class="context-item">
-                <span class="context-label">URL:</span>
-                <span class="context-value">${error.context.url}</span>
-            </div>
-            ` : ''}
-            
-            ${error.context.elementSelector ? `
-            <div class="context-item">
-                <span class="context-label">Element:</span>
-                <span class="context-value">${error.context.elementSelector}</span>
-            </div>
-            ` : ''}
-        </div>
-        
-        ${error.screenshot ? `
-        <div class="error-screenshot">
-            <h6>Screenshot at Failure</h6>
-            <img src="${error.screenshot}" alt="Error screenshot" onclick="openImageModal(this.src)">
-        </div>
-        ` : ''}
-    </div>
-</div>`;
-  }
 
   /**
    * Generate step error
@@ -628,137 +642,7 @@ ${this.generateFeatureScripts()}`;
 </div>`;
   }
 
-  /**
-   * Generate scenario evidence
-   */
-  private generateScenarioEvidence(evidence: ScenarioReport['evidence'], scenarioId: string): string {
-    return `
-<div class="scenario-evidence">
-    <h5 class="evidence-title">Evidence Collection</h5>
-    
-    ${evidence.screenshots.length > 0 ? `
-    <div class="evidence-section screenshots">
-        <h6>Screenshots (${evidence.screenshots.length})</h6>
-        <div class="screenshot-gallery">
-            ${evidence.screenshots.map((screenshot: string, index: number) => `
-            <div class="screenshot-item">
-                <img src="${screenshot}" 
-                     alt="Screenshot ${index + 1}" 
-                     onclick="openImageModal(this.src)">
-                <span class="screenshot-label">Screenshot ${index + 1}</span>
-            </div>
-            `).join('')}
-        </div>
-    </div>
-    ` : ''}
-    
-    ${evidence.video ? `
-    <div class="evidence-section video">
-        <h6>Video Recording</h6>
-        <video controls class="evidence-video">
-            <source src="${evidence.video}" type="video/mp4">
-            Your browser does not support the video tag.
-        </video>
-    </div>
-    ` : ''}
-    
-    ${evidence.trace ? `
-    <div class="evidence-section trace">
-        <h6>Execution Trace</h6>
-        <a href="${evidence.trace}" class="trace-link" target="_blank">
-            <svg viewBox="0 0 24 24">
-                <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
-            </svg>
-            Open Trace Viewer
-        </a>
-    </div>
-    ` : ''}
-    
-    ${evidence.networkHAR ? `
-    <div class="evidence-section network">
-        <h6>Network Activity</h6>
-        <button class="network-har-btn" onclick="downloadHAR('${evidence.networkHAR}')">
-            <svg viewBox="0 0 24 24">
-                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-            </svg>
-            Download HAR File
-        </button>
-    </div>
-    ` : ''}
-    
-    ${evidence.consoleLogs.length > 0 ? `
-    <div class="evidence-section console-logs">
-        <h6>Console Logs (${evidence.consoleLogs.length})</h6>
-        <div class="console-log-viewer">
-            ${evidence.consoleLogs.map((log: ConsoleLog) => `
-            <div class="console-log-entry ${log.level}">
-                <span class="log-timestamp">${this.formatTime(new Date(log.timestamp))}</span>
-                <span class="log-level">${log.level}</span>
-                <span class="log-message">${this.escapeHtml(log.message)}</span>
-                ${log.source ? `<span class="log-source">${log.source}</span>` : ''}
-            </div>
-            `).join('')}
-        </div>
-    </div>
-    ` : ''}
-</div>`;
-  }
 
-  /**
-   * Generate AI healing information
-   */
-  private generateAIHealingInfo(healingAttempts: AIHealingAttempt[]): string {
-    return `
-<div class="ai-healing-info">
-    <h5 class="healing-title">
-        <svg class="healing-icon" viewBox="0 0 24 24">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-        </svg>
-        AI Self-Healing
-    </h5>
-    
-    <div class="healing-attempts">
-        ${healingAttempts.map(attempt => `
-        <div class="healing-attempt ${attempt.success ? 'success' : 'failed'}">
-            <div class="attempt-header">
-                <span class="attempt-element">${attempt.elementDescription}</span>
-                <span class="attempt-confidence">${(attempt.confidence * 100).toFixed(1)}% confidence</span>
-            </div>
-            
-            <div class="attempt-details">
-                <div class="locator-change">
-                    <div class="locator original">
-                        <span class="locator-label">Original:</span>
-                        <code>${attempt.originalLocator}</code>
-                    </div>
-                    <div class="locator healed">
-                        <span class="locator-label">Healed:</span>
-                        <code>${attempt.healedLocator}</code>
-                    </div>
-                </div>
-                
-                <div class="attempt-metadata">
-                    <span class="metadata-item">
-                        <svg viewBox="0 0 16 16">
-                            <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/>
-                            <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115l.094-.319z"/>
-                        </svg>
-                        Strategy: ${attempt.strategy}
-                    </span>
-                    <span class="metadata-item">
-                        <svg viewBox="0 0 16 16">
-                            <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
-                            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
-                        </svg>
-                        Duration: ${attempt.duration}ms
-                    </span>
-                </div>
-            </div>
-        </div>
-        `).join('')}
-    </div>
-</div>`;
-  }
 
   /**
    * Generate feature timeline
@@ -779,15 +663,18 @@ ${this.generateFeatureScripts()}`;
         
         <div class="timeline-chart">
             ${scenarios.map(scenario => {
+              if (!scenario.startTime || !scenario.endTime) {
+                return ''; // Skip scenarios without timing info
+              }
               const startOffset = ((scenario.startTime.getTime() - feature.startTime.getTime()) / totalDuration) * 100;
               const width = ((scenario.endTime.getTime() - scenario.startTime.getTime()) / totalDuration) * 100;
               
               return `
               <div class="timeline-item ${scenario.status}" 
                    style="left: ${startOffset}%; width: ${width}%"
-                   title="${scenario.scenario} - ${this.formatDuration(scenario.duration)}">
+                   title="${scenario.name} - ${this.formatDuration(scenario.duration)}">
                 <div class="timeline-bar"></div>
-                <div class="timeline-label">${this.truncateText(scenario.scenario, 20)}</div>
+                <div class="timeline-label">${this.truncateText(scenario.name, 20)}</div>
               </div>`;
             }).join('')}
         </div>
@@ -813,7 +700,14 @@ ${this.generateFeatureScripts()}`;
     
     const errors = failedScenarios
       .filter(s => s.error)
-      .map(s => ({ scenario: s.scenario, error: s.error! }));
+      .map(s => ({ 
+        scenario: s.name, 
+        error: {
+          type: 'Error',
+          message: s.error!,
+          similar: [] as string[]
+        }
+      }));
     
     return `
 <section class="feature-errors">
@@ -833,7 +727,7 @@ ${this.generateFeatureScripts()}`;
             ${error.similar && error.similar.length > 0 ? `
             <div class="similar-errors">
                 <span class="similar-label">Similar errors in:</span>
-                ${error.similar.map(s => `<span class="similar-item">${s}</span>`).join('')}
+                ${error.similar.map((s: string) => `<span class="similar-item">${s}</span>`).join('')}
             </div>
             ` : ''}
         </div>

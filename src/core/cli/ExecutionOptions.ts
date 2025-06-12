@@ -32,10 +32,12 @@ export interface ExecutionOptions {
  parallel: boolean;
  workers: number;
  workerIdleMemoryLimit?: number;
+ cluster?: boolean;
  browser: BrowserType;
  browserChannel?: string;
  browserExecutablePath?: string;
  headless: boolean;
+ headed?: boolean;
  slowMo?: number;
  timeout: number;
  navigationTimeout?: number;
@@ -53,11 +55,17 @@ export interface ExecutionOptions {
  // Debug Configuration
  debug: boolean;
  debugPort?: number;
+ breakpoint?: string;
  verbose: boolean;
  verboseLevel?: VerboseLevel;
  quiet: boolean;
  noColors: boolean;
  preserveOutput?: boolean;
+ 
+ // Logging Configuration
+ logLevel?: string;
+ logFile?: boolean;
+ logPath?: string;
  
  // Evidence Collection
  video: boolean;
@@ -70,6 +78,8 @@ export interface ExecutionOptions {
  snapshotPathTemplate?: string;
  
  // Reporting Configuration
+ skipReport?: boolean;
+ skipADO?: boolean;
  reportName: string;
  reportPath: string;
  reportFormats: ReportFormat[];
@@ -161,6 +171,10 @@ export interface ExecutionOptions {
  // Custom Configuration
  customOptions?: Record<string, any>;
  
+ // CLI Options
+ help?: boolean;
+ version?: boolean;
+ 
  // Metadata
  executionId: string;
  startTime: Date;
@@ -168,7 +182,6 @@ export interface ExecutionOptions {
  commandLine: string;
  hostInfo?: HostInfo;
  executionMode?: ExecutionMode;
- tags?: string[];
  metadata?: Record<string, any>;
 }
 
@@ -1366,7 +1379,7 @@ export class ExecutionOptionsValidator {
    }
 
    // Check for deprecated options
-   if (options.customOptions?.legacyMode) {
+   if (options.customOptions?.['legacyMode']) {
      warnings.push({
        path: 'customOptions.legacyMode',
        message: 'Legacy mode is deprecated and will be removed in next major version',
@@ -1416,7 +1429,7 @@ export class TagExpressionParser {
    if (expr.startsWith('(') && expr.endsWith(')')) {
      // Find matching closing parenthesis
      let depth = 0;
-     let matchingIndex = -1;
+     // let matchingIndex = -1;
      
      for (let i = 0; i < expr.length; i++) {
        if (expr[i] === '(') depth++;
@@ -1576,43 +1589,43 @@ export class CIEnvironmentDetector {
  public static detect(): CIProvider | undefined {
    const env = process.env;
    
-   if (env.JENKINS_URL || env.JENKINS_HOME) {
+   if (env['JENKINS_URL'] || env['JENKINS_HOME']) {
      return 'jenkins';
    }
    
-   if (env.GITHUB_ACTIONS) {
+   if (env['GITHUB_ACTIONS']) {
      return 'github';
    }
    
-   if (env.GITLAB_CI) {
+   if (env['GITLAB_CI']) {
      return 'gitlab';
    }
    
-   if (env.TF_BUILD || env.AZURE_PIPELINES) {
+   if (env['TF_BUILD'] || env['AZURE_PIPELINES']) {
      return 'azure';
    }
    
-   if (env.CIRCLECI) {
+   if (env['CIRCLECI']) {
      return 'circleci';
    }
    
-   if (env.TRAVIS) {
+   if (env['TRAVIS']) {
      return 'travis';
    }
    
-   if (env.BITBUCKET_BUILD_NUMBER) {
+   if (env['BITBUCKET_BUILD_NUMBER']) {
      return 'bitbucket';
    }
    
-   if (env.TEAMCITY_VERSION) {
+   if (env['TEAMCITY_VERSION']) {
      return 'teamcity';
    }
    
-   if (env.bamboo_buildNumber) {
+   if (env['bamboo_buildNumber']) {
      return 'bamboo';
    }
    
-   if (env.CI) {
+   if (env['CI']) {
      return 'custom';
    }
    
@@ -1627,36 +1640,74 @@ export class CIEnvironmentDetector {
    const env = process.env;
    
    const info: Partial<ExecutionOptions> = {
-     ci: true,
-     ciProvider: provider
+     ci: true
    };
+   
+   if (provider) {
+     info.ciProvider = provider;
+   }
    
    switch (provider) {
      case 'github':
-       info.buildId = env.GITHUB_RUN_ID;
-       info.buildUrl = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
-       info.jobName = env.GITHUB_JOB;
-       info.branchName = env.GITHUB_REF_NAME;
-       info.commitSha = env.GITHUB_SHA;
-       info.pullRequestId = env.GITHUB_EVENT_NAME === 'pull_request' ? 
-         env.GITHUB_EVENT_PATH : undefined;
+       if (env['GITHUB_RUN_ID']) {
+         info.buildId = env['GITHUB_RUN_ID'];
+       }
+       if (env['GITHUB_SERVER_URL'] && env['GITHUB_REPOSITORY'] && env['GITHUB_RUN_ID']) {
+         info.buildUrl = `${env['GITHUB_SERVER_URL']}/${env['GITHUB_REPOSITORY']}/actions/runs/${env['GITHUB_RUN_ID']}`;
+       }
+       if (env['GITHUB_JOB']) {
+         info.jobName = env['GITHUB_JOB'];
+       }
+       if (env['GITHUB_REF_NAME']) {
+         info.branchName = env['GITHUB_REF_NAME'];
+       }
+       if (env['GITHUB_SHA']) {
+         info.commitSha = env['GITHUB_SHA'];
+       }
+       if (env['GITHUB_EVENT_NAME'] === 'pull_request' && env['GITHUB_EVENT_PATH']) {
+         info.pullRequestId = env['GITHUB_EVENT_PATH'];
+       }
        break;
        
      case 'jenkins':
-       info.buildId = env.BUILD_ID;
-       info.buildUrl = env.BUILD_URL;
-       info.jobName = env.JOB_NAME;
-       info.branchName = env.BRANCH_NAME || env.GIT_BRANCH;
-       info.commitSha = env.GIT_COMMIT;
+       if (env['BUILD_ID']) {
+         info.buildId = env['BUILD_ID'];
+       }
+       if (env['BUILD_URL']) {
+         info.buildUrl = env['BUILD_URL'];
+       }
+       if (env['JOB_NAME']) {
+         info.jobName = env['JOB_NAME'];
+       }
+       if (env['BRANCH_NAME']) {
+         info.branchName = env['BRANCH_NAME'];
+       } else if (env['GIT_BRANCH']) {
+         info.branchName = env['GIT_BRANCH'];
+       }
+       if (env['GIT_COMMIT']) {
+         info.commitSha = env['GIT_COMMIT'];
+       }
        break;
        
      case 'azure':
-       info.buildId = env.BUILD_BUILDID;
-       info.buildUrl = `${env.SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${env.SYSTEM_TEAMPROJECT}/_build/results?buildId=${env.BUILD_BUILDID}`;
-       info.jobName = env.BUILD_DEFINITIONNAME;
-       info.branchName = env.BUILD_SOURCEBRANCHNAME;
-       info.commitSha = env.BUILD_SOURCEVERSION;
-       info.pullRequestId = env.SYSTEM_PULLREQUEST_PULLREQUESTID;
+       if (env['BUILD_BUILDID']) {
+         info.buildId = env['BUILD_BUILDID'];
+       }
+       if (env['SYSTEM_TEAMFOUNDATIONCOLLECTIONURI'] && env['SYSTEM_TEAMPROJECT'] && env['BUILD_BUILDID']) {
+         info.buildUrl = `${env['SYSTEM_TEAMFOUNDATIONCOLLECTIONURI']}${env['SYSTEM_TEAMPROJECT']}/_build/results?buildId=${env['BUILD_BUILDID']}`;
+       }
+       if (env['BUILD_DEFINITIONNAME']) {
+         info.jobName = env['BUILD_DEFINITIONNAME'];
+       }
+       if (env['BUILD_SOURCEBRANCHNAME']) {
+         info.branchName = env['BUILD_SOURCEBRANCHNAME'];
+       }
+       if (env['BUILD_SOURCEVERSION']) {
+         info.commitSha = env['BUILD_SOURCEVERSION'];
+       }
+       if (env['SYSTEM_PULLREQUEST_PULLREQUESTID']) {
+         info.pullRequestId = env['SYSTEM_PULLREQUEST_PULLREQUESTID'];
+       }
        break;
        
      // Add other CI providers...

@@ -3,16 +3,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-import { Readable, Transform, Writable } from 'stream';
-import { pipeline } from 'stream/promises';
+import { Transform } from 'stream';
 import { promisify } from 'util';
-import { ExportResult, ExportOptions, ExecutionResult } from '../types/reporting.types';
-import { Logger } from '../../utils/Logger';
-import { DateUtils } from '../../utils/DateUtils';
-import { FileUtils } from '../../utils/FileUtils';
+import { ExportResult, ExportOptions, ExecutionResult, FeatureReport, ScenarioSummary, ExportFormat } from '../types/reporting.types';
+import { ExecutionStatus } from '../../bdd/types/bdd.types';
+import { Logger } from '../../core/utils/Logger';
+import { DateUtils } from '../../core/utils/DateUtils';
+import { FileUtils } from '../../core/utils/FileUtils';
 
 const gzip = promisify(zlib.gzip);
-const gunzip = promisify(zlib.gunzip);
 
 interface JSONExportOptions extends ExportOptions {
   pretty?: boolean;
@@ -31,20 +30,15 @@ interface JSONExportOptions extends ExportOptions {
   includeMetadata?: boolean;
 }
 
-interface StreamingOptions {
-  batchSize: number;
-  flushInterval: number;
-  maxMemory: number;
-}
 
 export class JSONExporter {
-  private logger = new Logger('JSONExporter');
+  private logger = Logger.getInstance('JSONExporter');
   private readonly memoryThreshold = 50 * 1024 * 1024; // 50MB
   
   async export(
     result: ExecutionResult,
     outputPath: string,
-    options: JSONExportOptions = {}
+    options: JSONExportOptions = { format: ExportFormat.JSON }
   ): Promise<ExportResult> {
     const startTime = Date.now();
     
@@ -52,7 +46,7 @@ export class JSONExporter {
       this.logger.info('Starting JSON export', { outputPath, options });
 
       // Ensure directory exists
-      await FileUtils.ensureDirectory(path.dirname(outputPath));
+      await FileUtils.ensureDir(path.dirname(outputPath));
 
       // Transform result based on schema
       const transformedResult = this.transformBySchema(result, options);
@@ -85,27 +79,18 @@ export class JSONExporter {
 
       return {
         success: true,
-        outputPath: finalPath,
-        format: 'json',
-        exportTime,
-        fileSize,
-        metadata: {
-          schema: options.schema || 'default',
-          compressed: options.compress || false,
-          streaming: shouldStream,
-          pretty: options.pretty || false
-        }
+        filePath: finalPath,
+        format: ExportFormat.JSON,
+        size: fileSize
       };
 
     } catch (error) {
-      this.logger.error('JSON export failed', error);
+      this.logger.error('JSON export failed', error as Error);
       return {
         success: false,
-        outputPath,
-        format: 'json',
-        exportTime: Date.now() - startTime,
-        error: error.message,
-        stack: error.stack
+        filePath: outputPath,
+        format: ExportFormat.JSON,
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
@@ -146,50 +131,44 @@ export class JSONExporter {
         startTime: this.formatDate(result.startTime, options),
         endTime: this.formatDate(result.endTime, options),
         duration: result.duration,
-        status: result.summary.failed > 0 ? 'failed' : 'passed'
+        status: result.failedScenarios > 0 ? 'failed' : 'passed'
       },
       summary: {
         features: {
-          total: result.summary.totalFeatures,
-          passed: result.features.filter(f => 
-            f.scenarios.every(s => s.status === 'passed')
-          ).length,
-          failed: result.features.filter(f => 
-            f.scenarios.some(s => s.status === 'failed')
-          ).length
+          total: result.totalFeatures,
+          passed: result.passedFeatures,
+          failed: result.failedFeatures
         },
         scenarios: {
-          total: result.summary.totalScenarios,
-          passed: result.summary.passed,
-          failed: result.summary.failed,
-          skipped: result.summary.skipped,
-          pending: result.summary.pending || 0
+          total: result.totalScenarios,
+          passed: result.passedScenarios,
+          failed: result.failedScenarios,
+          skipped: result.skippedScenarios,
+          pending: 0
         },
         steps: {
-          total: result.summary.totalSteps,
-          passed: result.summary.passedSteps || 0,
-          failed: result.summary.failedSteps || 0,
-          skipped: result.summary.skippedSteps || 0,
-          pending: result.summary.pendingSteps || 0
+          total: result.totalSteps,
+          passed: result.passedSteps,
+          failed: result.failedSteps,
+          skipped: result.skippedSteps,
+          pending: 0
         },
-        passRate: result.summary.totalScenarios > 0 
-          ? (result.summary.passed / result.summary.totalScenarios * 100).toFixed(2) + '%'
+        passRate: result.totalScenarios > 0 
+          ? (result.passedScenarios / result.totalScenarios * 100).toFixed(2) + '%'
           : '0%'
       },
       features: result.features.map(feature => this.transformFeature(feature, options)),
-      ...(options.includeMetrics && result.metrics && {
-        metrics: this.transformMetrics(result.metrics, options)
-      }),
-      ...(options.includeLogs && result.logs && {
-        logs: options.excludeEmpty && result.logs.length === 0 
-          ? undefined 
-          : this.transformLogs(result.logs, options)
-      }),
-      ...(options.includeTimings && result.timings && {
-        timings: this.transformTimings(result.timings, options)
-      }),
       ...(result.tags && result.tags.length > 0 && {
         tags: this.transformTags(result.tags)
+      }),
+      ...(options.includeMetrics && result.metadata?.['metrics'] && {
+        metrics: this.transformMetrics(result.metadata['metrics'], options)
+      }),
+      ...(options.includeLogs && result.metadata?.['logs'] && {
+        logs: this.transformLogs(result.metadata['logs'], options)
+      }),
+      ...(options.includeTimings && result.metadata?.['timings'] && {
+        timings: this.transformTimings(result.metadata['timings'], options)
       }),
       ...(options.includeMetadata && {
         metadata: {
@@ -212,16 +191,16 @@ export class JSONExporter {
     return transformed;
   }
 
-  private transformFeature(feature: any, options: JSONExportOptions): any {
+  private transformFeature(feature: FeatureReport, options: JSONExportOptions): any {
     return {
-      name: feature.name,
+      name: feature.feature,
       description: feature.description,
-      file: feature.file,
+      file: feature.uri,
       line: feature.line || 1,
       tags: feature.tags || [],
       background: feature.background,
-      scenarios: feature.scenarios.map((scenario: any) => 
-        this.transformScenario(scenario, options)
+      scenarios: feature.scenarios.map((scenario: ScenarioSummary) => 
+        this.transformScenarioSummary(scenario, options)
       ),
       statistics: {
         scenarios: {
@@ -236,19 +215,19 @@ export class JSONExporter {
     };
   }
 
-  private transformScenario(scenario: any, options: JSONExportOptions): any {
+  private transformScenarioSummary(scenario: ScenarioSummary, options: JSONExportOptions): any {
     const transformed: any = {
       name: scenario.name,
-      description: scenario.description,
+      description: scenario.description || '',
       tags: scenario.tags || [],
       line: scenario.line || 1,
       keyword: scenario.keyword || 'Scenario',
       status: scenario.status,
-      startTime: this.formatDate(scenario.startTime, options),
-      endTime: this.formatDate(scenario.endTime, options),
+      startTime: scenario.startTime ? this.formatDate(scenario.startTime, options) : null,
+      endTime: scenario.endTime ? this.formatDate(scenario.endTime, options) : null,
       duration: scenario.duration,
-      retries: scenario.retries || 0,
-      steps: scenario.steps.map((step: any) => this.transformStep(step, options)),
+      retries: scenario.retryCount || 0,
+      steps: scenario.steps ? scenario.steps.map(step => this.transformStep(step, options)) : [],
       ...(scenario.parameters && {
         parameters: scenario.parameters
       }),
@@ -266,7 +245,7 @@ export class JSONExporter {
         evidence: {
           screenshots: scenario.screenshots || [],
           videos: scenario.videos || [],
-          attachments: scenario.attachments || []
+          attachments: []
         }
       })
     };
@@ -316,34 +295,34 @@ export class JSONExporter {
     return transformed;
   }
 
-  private transformToJUnit(result: ExecutionResult, options: JSONExportOptions): any {
+  private transformToJUnit(result: ExecutionResult, _options: JSONExportOptions): any {
     return {
       testsuites: {
         '@name': 'CS Test Automation',
-        '@tests': result.summary.totalScenarios,
-        '@failures': result.summary.failed,
+        '@tests': result.totalScenarios,
+        '@failures': result.failedScenarios,
         '@errors': 0,
-        '@skipped': result.summary.skipped,
+        '@skipped': result.skippedScenarios,
         '@time': (result.duration / 1000).toFixed(3),
         '@timestamp': new Date(result.startTime).toISOString(),
         testsuite: result.features.map(feature => ({
-          '@name': feature.name,
+          '@name': feature.feature,
           '@tests': feature.scenarios.length,
           '@failures': feature.scenarios.filter(s => s.status === 'failed').length,
           '@errors': 0,
           '@skipped': feature.scenarios.filter(s => s.status === 'skipped').length,
           '@time': (feature.scenarios.reduce((sum, s) => sum + s.duration, 0) / 1000).toFixed(3),
-          '@timestamp': new Date(feature.scenarios[0]?.startTime || result.startTime).toISOString(),
+          '@timestamp': new Date(result.startTime).toISOString(),
           properties: {
             property: [
               { '@name': 'environment', '@value': result.environment },
-              { '@name': 'browser', '@value': result.metadata?.browser || 'unknown' }
+              { '@name': 'browser', '@value': result.metadata?.['browser'] || 'unknown' }
             ]
           },
           testcase: feature.scenarios.map(scenario => {
             const testcase: any = {
               '@name': scenario.name,
-              '@classname': feature.name,
+              '@classname': feature.feature,
               '@time': (scenario.duration / 1000).toFixed(3)
             };
 
@@ -351,7 +330,7 @@ export class JSONExporter {
               testcase.failure = {
                 '@message': scenario.error || 'Test failed',
                 '@type': 'AssertionError',
-                '#text': scenario.errorStack || scenario.errorDetails || scenario.error
+                '#text': scenario.errorStack || scenario.errorDetails || scenario.error || 'Test failed'
               };
             }
 
@@ -363,7 +342,7 @@ export class JSONExporter {
 
             if (scenario.logs && scenario.logs.length > 0) {
               testcase['system-out'] = scenario.logs
-                .map(log => `[${log.timestamp}] ${log.level}: ${log.message}`)
+                .map((log: any) => `[${log.timestamp}] ${log.level}: ${log.message}`)
                 .join('\n');
             }
 
@@ -378,16 +357,16 @@ export class JSONExporter {
     };
   }
 
-  private transformToCucumber(result: ExecutionResult, options: JSONExportOptions): any {
+  private transformToCucumber(result: ExecutionResult, _options: JSONExportOptions): any {
     return result.features.map(feature => ({
       description: feature.description || '',
       elements: feature.scenarios.map(scenario => ({
         description: scenario.description || '',
-        id: `${feature.name.toLowerCase().replace(/\s+/g, '-')};${scenario.name.toLowerCase().replace(/\s+/g, '-')}`,
+        id: `${feature.feature.toLowerCase().replace(/\s+/g, '-')};${scenario.name.toLowerCase().replace(/\s+/g, '-')}`,
         keyword: scenario.keyword || 'Scenario',
         line: scenario.line || 1,
         name: scenario.name,
-        steps: scenario.steps.map((step, index) => ({
+        steps: (scenario.steps || []).map((step: any, index: number) => ({
           arguments: step.dataTable ? [{
             rows: step.dataTable.map((row: any) => ({ cells: row }))
           }] : step.docString ? [{
@@ -408,33 +387,30 @@ export class JSONExporter {
             })
           }
         })),
-        tags: scenario.tags.map(tag => ({
+        tags: (scenario.tags || []).map((tag: string) => ({
           line: scenario.line ? scenario.line - 1 : 0,
           name: tag
         })),
         type: 'scenario'
       })),
-      id: feature.name.toLowerCase().replace(/\s+/g, '-'),
+      id: feature.feature.toLowerCase().replace(/\s+/g, '-'),
       keyword: 'Feature',
       line: feature.line || 1,
-      name: feature.name,
+      name: feature.feature,
       tags: feature.tags.map((tag, index) => ({
         line: index,
         name: tag
       })),
-      uri: feature.file
+      uri: feature.uri
     }));
   }
 
-  private transformToTestNG(result: ExecutionResult, options: JSONExportOptions): any {
+  private transformToTestNG(result: ExecutionResult, _options: JSONExportOptions): any {
     const suites = result.features.map(feature => {
       const scenarios = feature.scenarios;
-      const passed = scenarios.filter(s => s.status === 'passed').length;
-      const failed = scenarios.filter(s => s.status === 'failed').length;
-      const skipped = scenarios.filter(s => s.status === 'skipped').length;
 
       return {
-        '@name': feature.name,
+        '@name': feature.feature,
         '@duration-ms': scenarios.reduce((sum, s) => sum + s.duration, 0),
         '@started-at': new Date(scenarios[0]?.startTime || result.startTime).toISOString(),
         '@finished-at': new Date(scenarios[scenarios.length - 1]?.endTime || result.endTime).toISOString(),
@@ -442,18 +418,18 @@ export class JSONExporter {
         test: scenarios.map(scenario => ({
           '@name': scenario.name,
           '@duration-ms': scenario.duration,
-          '@started-at': new Date(scenario.startTime).toISOString(),
-          '@finished-at': new Date(scenario.endTime).toISOString(),
+          '@started-at': scenario.startTime ? new Date(scenario.startTime).toISOString() : new Date().toISOString(),
+          '@finished-at': scenario.endTime ? new Date(scenario.endTime).toISOString() : new Date().toISOString(),
           class: {
-            '@name': feature.name.replace(/\s+/g, '.')
+            '@name': feature.feature.replace(/\s+/g, '.')
           },
           'test-method': {
             '@signature': `${scenario.name.replace(/\s+/g, '_')}()`,
             '@name': scenario.name.replace(/\s+/g, '_'),
             '@is-config': false,
             '@duration-ms': scenario.duration,
-            '@started-at': new Date(scenario.startTime).toISOString(),
-            '@finished-at': new Date(scenario.endTime).toISOString(),
+            '@started-at': scenario.startTime ? new Date(scenario.startTime).toISOString() : new Date().toISOString(),
+            '@finished-at': scenario.endTime ? new Date(scenario.endTime).toISOString() : new Date().toISOString(),
             ...(scenario.status === 'failed' && {
               exception: {
                 '@class': 'java.lang.AssertionError',
@@ -462,7 +438,7 @@ export class JSONExporter {
               }
             }),
             ...(scenario.parameters && {
-              params: Object.entries(scenario.parameters).map(([key, value], index) => ({
+              params: Object.entries(scenario.parameters || {}).map(([_key, value], index) => ({
                 param: {
                   '@index': index,
                   value: String(value)
@@ -477,23 +453,23 @@ export class JSONExporter {
     return {
       'testng-results': {
         '@version': '1.0',
-        '@skipped': result.summary.skipped,
-        '@failed': result.summary.failed,
-        '@total': result.summary.totalScenarios,
-        '@passed': result.summary.passed,
+        '@skipped': result.skippedScenarios,
+        '@failed': result.failedScenarios,
+        '@total': result.totalScenarios,
+        '@passed': result.passedScenarios,
         'reporter-output': {},
         suite: suites
       }
     };
   }
 
-  private transformToAllure(result: ExecutionResult, options: JSONExportOptions): any {
+  private transformToAllure(result: ExecutionResult, _options: JSONExportOptions): any {
     return {
       uid: result.executionId,
       name: 'CS Test Automation Results',
       children: result.features.map(feature => ({
-        uid: `feature-${feature.name.toLowerCase().replace(/\s+/g, '-')}`,
-        name: feature.name,
+        uid: `feature-${feature.feature.toLowerCase().replace(/\s+/g, '-')}`,
+        name: feature.feature,
         befores: [],
         afters: [],
         children: feature.scenarios.map(scenario => ({
@@ -503,18 +479,18 @@ export class JSONExporter {
           stage: 'finished',
           start: scenario.startTime,
           stop: scenario.endTime,
-          steps: scenario.steps.map(step => ({
+          steps: (scenario.steps || []).map((step: any) => ({
             name: `${step.keyword} ${step.text}`,
             status: step.status,
             stage: 'finished',
             start: scenario.startTime,
-            stop: scenario.startTime + step.duration,
+            stop: scenario.startTime ? new Date(new Date(scenario.startTime).getTime() + step.duration).toISOString() : new Date().toISOString(),
             statusDetails: step.error ? {
               message: step.error,
-              trace: step.errorStack
+              trace: step.errorStack || ''
             } : {},
             attachments: [
-              ...(step.screenshots || []).map(s => ({
+              ...(step.screenshots || []).map((s: any) => ({
                 name: s.name || 'screenshot',
                 source: s.path,
                 type: 'image/png'
@@ -522,22 +498,22 @@ export class JSONExporter {
             ]
           })),
           labels: [
-            { name: 'feature', value: feature.name },
+            { name: 'feature', value: feature.feature },
             { name: 'framework', value: 'CS Test Automation' },
             { name: 'environment', value: result.environment },
-            ...scenario.tags.map(tag => ({ name: 'tag', value: tag }))
+            ...(scenario.tags || []).map((tag: string) => ({ name: 'tag', value: tag }))
           ],
           parameters: Object.entries(scenario.parameters || {}).map(([name, value]) => ({
             name,
             value: String(value)
           })),
           attachments: [
-            ...(scenario.screenshots || []).map(s => ({
+            ...(scenario.screenshots || []).map((s: any) => ({
               name: s.name || 'screenshot',
               source: s.path,
               type: 'image/png'
             })),
-            ...(scenario.videos || []).map(v => ({
+            ...(scenario.videos || []).map((v: any) => ({
               name: v.name || 'video',
               source: v.path,
               type: 'video/mp4'
@@ -547,7 +523,7 @@ export class JSONExporter {
             message: scenario.error,
             trace: scenario.errorStack
           } : {},
-          historyId: `${feature.name}::${scenario.name}`.toLowerCase().replace(/\s+/g, '-')
+          historyId: `${feature.feature}::${scenario.name}`.toLowerCase().replace(/\s+/g, '-')
         }))
       }))
     };
@@ -600,7 +576,9 @@ export class JSONExporter {
       const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
       if (arrayMatch) {
         const [, propertyName, index] = arrayMatch;
-        current = current[propertyName]?.[parseInt(index)];
+        if (propertyName && index) {
+          current = current[propertyName]?.[parseInt(index, 10)];
+        }
       } else if (part === '*' && Array.isArray(current)) {
         // Wildcard for arrays
         return current.map(item => this.extractByPath(item, parts.slice(parts.indexOf(part) + 1).join('.')));
@@ -645,7 +623,7 @@ export class JSONExporter {
       // Create JSON stringifier transform stream
       const jsonStream = new Transform({
         writableObjectMode: true,
-        transform(chunk, encoding, callback) {
+        transform(chunk, _encoding, callback) {
           try {
             const json = options.pretty 
               ? JSON.stringify(chunk, null, 2) 
@@ -655,7 +633,7 @@ export class JSONExporter {
             totalSize += buffer.length;
             callback(null, buffer);
           } catch (error) {
-            callback(error);
+            callback(error instanceof Error ? error : new Error(String(error)));
           }
         }
       });
@@ -737,7 +715,7 @@ export class JSONExporter {
         const entries = Object.entries(value);
         let writtenCount = 0;
         
-        entries.forEach(([key, val], index) => {
+        entries.forEach(([key, val]) => {
           if (options.excludeEmpty && (val === null || val === undefined || 
               (Array.isArray(val) && val.length === 0) ||
               (typeof val === 'object' && Object.keys(val).length === 0))) {
@@ -831,7 +809,7 @@ export class JSONExporter {
     return obj;
   }
 
-  private transformMetrics(metrics: any, options: JSONExportOptions): any {
+  private transformMetrics(metrics: any, _options: JSONExportOptions): any {
     return {
       performance: metrics.performance ? {
         pageLoadTime: this.formatMetricStats(metrics.performance.pageLoadTime),
@@ -881,7 +859,7 @@ export class JSONExporter {
     }));
   }
 
-  private transformTimings(timings: any, options: JSONExportOptions): any {
+  private transformTimings(timings: any, _options: JSONExportOptions): any {
     return {
       setup: timings.setup,
       execution: timings.execution,
@@ -906,7 +884,7 @@ export class JSONExporter {
     result: ExecutionResult,
     outputPath: string,
     filter: (feature: any) => boolean,
-    options: JSONExportOptions = {}
+    options: JSONExportOptions = { format: ExportFormat.JSON }
   ): Promise<ExportResult> {
     const filteredResult = {
       ...result,
@@ -939,24 +917,29 @@ export class JSONExporter {
   async merge(
     results: ExecutionResult[],
     outputPath: string,
-    options: JSONExportOptions = {}
+    options: JSONExportOptions = { format: ExportFormat.JSON }
   ): Promise<ExportResult> {
     const mergedResult: ExecutionResult = {
       executionId: `merged-${Date.now()}`,
       environment: results[0]?.environment || 'unknown',
-      startTime: Math.min(...results.map(r => r.startTime)),
-      endTime: Math.max(...results.map(r => r.endTime)),
+      startTime: new Date(Math.min(...results.map(r => new Date(r.startTime).getTime()))),
+      endTime: new Date(Math.max(...results.map(r => new Date(r.endTime).getTime()))),
       duration: 0,
       features: [],
-      summary: {
-        totalFeatures: 0,
-        totalScenarios: 0,
-        totalSteps: 0,
-        passed: 0,
-        failed: 0,
-        skipped: 0,
-        pending: 0
-      },
+      totalFeatures: 0,
+      totalScenarios: 0,
+      totalSteps: 0,
+      passedFeatures: 0,
+      passedScenarios: 0,
+      passedSteps: 0,
+      failedFeatures: 0,
+      failedScenarios: 0,
+      failedSteps: 0,
+      skippedFeatures: 0,
+      skippedScenarios: 0,
+      skippedSteps: 0,
+      scenarios: [],
+      status: ExecutionStatus.PASSED,
       tags: [],
       metadata: {
         merged: true,
@@ -966,34 +949,52 @@ export class JSONExporter {
     };
 
     // Merge features
-    const featureMap = new Map<string, any>();
+    const featureMap = new Map<string, FeatureReport>();
     
     for (const result of results) {
       for (const feature of result.features) {
-        const existing = featureMap.get(feature.name);
+        const existing = featureMap.get(feature.feature);
         if (existing) {
           existing.scenarios.push(...feature.scenarios);
         } else {
-          featureMap.set(feature.name, { ...feature });
+          featureMap.set(feature.feature, { ...feature });
         }
       }
     }
 
     mergedResult.features = Array.from(featureMap.values());
-    mergedResult.summary = this.recalculateSummary(mergedResult.features);
-    mergedResult.duration = mergedResult.endTime - mergedResult.startTime;
+    const summary = this.recalculateSummary(mergedResult.features);
+    mergedResult.totalFeatures = summary.totalFeatures;
+    mergedResult.totalScenarios = summary.totalScenarios;
+    mergedResult.totalSteps = summary.totalSteps;
+    mergedResult.passedScenarios = summary.passed;
+    mergedResult.failedScenarios = summary.failed;
+    mergedResult.skippedScenarios = summary.skipped;
+    mergedResult.passedSteps = summary.passedSteps;
+    mergedResult.failedSteps = summary.failedSteps;
+    mergedResult.skippedSteps = summary.skippedSteps;
+    mergedResult.passedFeatures = mergedResult.features.filter(f => 
+      f.scenarios.every(s => s.status === 'passed')
+    ).length;
+    mergedResult.failedFeatures = mergedResult.features.filter(f => 
+      f.scenarios.some(s => s.status === 'failed')
+    ).length;
+    mergedResult.skippedFeatures = mergedResult.features.filter(f => 
+      f.scenarios.every(s => s.status === 'skipped')
+    ).length;
+    mergedResult.duration = mergedResult.endTime.getTime() - mergedResult.startTime.getTime();
 
     // Merge tags
     const tagMap = new Map<string, any>();
     for (const result of results) {
       if (result.tags) {
         for (const tag of result.tags) {
-          const existing = tagMap.get(tag.name);
+          const existing = tagMap.get(tag);
           if (existing) {
-            existing.count += tag.count;
-            existing.scenarios = (existing.scenarios || 0) + (tag.scenarios || tag.count);
+            existing.count += 1;
+            existing.scenarios = (existing.scenarios || 0) + 1;
           } else {
-            tagMap.set(tag.name, { ...tag });
+            tagMap.set(tag, { name: tag, count: 1, scenarios: 1 });
           }
         }
       }

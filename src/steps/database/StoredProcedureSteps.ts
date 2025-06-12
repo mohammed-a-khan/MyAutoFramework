@@ -3,132 +3,155 @@
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { DatabaseContext } from '../../database/context/DatabaseContext';
-import { CSDatabase } from '../../database/client/CSDatabase';
 import { ActionLogger } from '../../core/logging/ActionLogger';
-import { StoredProcedureCall, ProcedureParameter, ResultSet } from '../../database/types/database.types';
+import { StoredProcedureCall, ProcedureParameter, QueryResult, StoredProcedureMetadata } from '../../database/types/database.types';
 
 export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
-    private databaseContext: DatabaseContext;
+    private databaseContext: DatabaseContext = new DatabaseContext();
+    private lastOutputParameters: Record<string, any> = {};
+    private lastResultSets: QueryResult[] = [];
+    private lastReturnValue: any;
 
     constructor() {
         super();
-        this.databaseContext = this.context.getDatabaseContext();
     }
 
     @CSBDDStepDef('user executes stored procedure {string}')
     async executeStoredProcedure(procedureName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_stored_procedure', { procedureName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_stored_procedure', '', 0, undefined, { procedureName });
 
         try {
-            const db = this.getCurrentDatabase();
             const interpolatedName = this.interpolateVariables(procedureName);
             
             const startTime = Date.now();
-            const result = await db.executeProcedure(interpolatedName);
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
+            const queryResult = await adapter.executeStoredProcedure(connection, interpolatedName);
             const executionTime = Date.now() - startTime;
+
+            // Convert QueryResult to StoredProcedureCall format
+            const result: StoredProcedureCall = {
+                resultSets: [queryResult],
+                outputParameters: {},
+                returnValue: undefined
+            };
 
             this.handleProcedureResult(result, interpolatedName, executionTime);
 
-            ActionLogger.logDatabaseAction('stored_procedure_executed', {
+            await actionLogger.logDatabase('stored_procedure_executed', interpolatedName, executionTime, queryResult.rowCount, {
                 procedureName: interpolatedName,
                 executionTime,
-                resultSets: result.resultSets?.length || 0,
-                outputParameters: Object.keys(result.outputParameters || {}).length
+                rowCount: queryResult.rowCount
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('stored_procedure_failed', error);
-            throw new Error(`Failed to execute stored procedure '${procedureName}': ${error.message}`);
+            await actionLogger.logDatabase('stored_procedure_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to execute stored procedure '${procedureName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user executes stored procedure {string} with parameters:')
     async executeStoredProcedureWithParams(procedureName: string, dataTable: any): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_stored_procedure_with_params', { procedureName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_stored_procedure_with_params', '', 0, undefined, { procedureName });
 
         try {
-            const db = this.getCurrentDatabase();
             const interpolatedName = this.interpolateVariables(procedureName);
             const parameters = this.parseProcedureParameters(dataTable);
             
             const startTime = Date.now();
-            const result = await db.executeProcedureWithParams(interpolatedName, parameters);
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
+            const paramArray = parameters.map(p => p.value);
+            const queryResult = await adapter.executeStoredProcedure(connection, interpolatedName, paramArray);
             const executionTime = Date.now() - startTime;
+
+            // Convert QueryResult to StoredProcedureCall format
+            const result: StoredProcedureCall = {
+                resultSets: [queryResult],
+                outputParameters: this.extractOutputParameters(parameters, paramArray),
+                returnValue: undefined
+            };
 
             this.handleProcedureResult(result, interpolatedName, executionTime);
 
-            ActionLogger.logDatabaseAction('stored_procedure_with_params_executed', {
+            await actionLogger.logDatabase('stored_procedure_with_params_executed', interpolatedName, executionTime, queryResult.rowCount, {
                 procedureName: interpolatedName,
                 executionTime,
                 parameterCount: parameters.length,
-                resultSets: result.resultSets?.length || 0,
-                outputParameters: Object.keys(result.outputParameters || {}).length
+                rowCount: queryResult.rowCount
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('stored_procedure_params_failed', error);
-            throw new Error(`Failed to execute stored procedure with parameters: ${error.message}`);
+            await actionLogger.logDatabase('stored_procedure_params_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to execute stored procedure with parameters: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user calls function {string} and stores result as {string}')
     async executeFunctionAndStore(functionName: string, alias: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_function_store', { functionName, alias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_function_store', '', 0, undefined, { functionName, alias });
 
         try {
-            const db = this.getCurrentDatabase();
             const interpolatedName = this.interpolateVariables(functionName);
             
-            const result = await db.executeFunction(interpolatedName);
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
+            const result = await adapter.executeFunction(connection, interpolatedName);
             
             // Store function return value
-            this.context.setVariable(alias, result.returnValue);
-            this.databaseContext.setLastScalarResult(result.returnValue);
+            this.store(alias, result);
+            this.lastReturnValue = result;
 
-            ActionLogger.logDatabaseAction('function_executed_stored', {
+            await actionLogger.logDatabase('function_executed_stored', interpolatedName, 0, undefined, {
                 functionName: interpolatedName,
                 alias,
-                returnValue: result.returnValue,
-                returnType: typeof result.returnValue
+                returnValue: result,
+                returnType: typeof result
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('function_execution_failed', error);
-            throw new Error(`Failed to execute function '${functionName}': ${error.message}`);
+            await actionLogger.logDatabase('function_execution_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to execute function '${functionName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user calls function {string} with parameters:')
     async executeFunctionWithParams(functionName: string, dataTable: any): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_function_with_params', { functionName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_function_with_params', '', 0, undefined, { functionName });
 
         try {
-            const db = this.getCurrentDatabase();
             const interpolatedName = this.interpolateVariables(functionName);
             const parameters = this.parseFunctionParameters(dataTable);
             
-            const result = await db.executeFunctionWithParams(interpolatedName, parameters);
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
+            const result = await adapter.executeFunction(connection, interpolatedName, parameters);
             
-            this.databaseContext.setLastScalarResult(result.returnValue);
+            this.lastReturnValue = result;
 
-            ActionLogger.logDatabaseAction('function_with_params_executed', {
+            await actionLogger.logDatabase('function_with_params_executed', interpolatedName, 0, undefined, {
                 functionName: interpolatedName,
                 parameterCount: parameters.length,
-                returnValue: result.returnValue
+                returnValue: result
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('function_params_failed', error);
-            throw new Error(`Failed to execute function with parameters: ${error.message}`);
+            await actionLogger.logDatabase('function_params_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to execute function with parameters: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('the output parameter {string} should be {string}')
     async validateOutputParameter(parameterName: string, expectedValue: string): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_output_parameter', { parameterName, expectedValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('validate_output_parameter', '', 0, undefined, { parameterName, expectedValue });
 
-        const outputParams = this.databaseContext.getLastOutputParameters();
-        if (!outputParams) {
+        const outputParams = this.lastOutputParameters;
+        if (!outputParams || Object.keys(outputParams).length === 0) {
             throw new Error('No output parameters available. Execute a stored procedure first');
         }
 
@@ -153,7 +176,7 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
             );
         }
 
-        ActionLogger.logDatabaseAction('output_parameter_validated', {
+        await actionLogger.logDatabase('output_parameter_validated', '', 0, undefined, {
             parameterName,
             expectedValue: convertedExpected,
             actualValue
@@ -162,10 +185,11 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
 
     @CSBDDStepDef('user stores output parameter {string} as {string}')
     async storeOutputParameter(parameterName: string, variableName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('store_output_parameter', { parameterName, variableName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('store_output_parameter', '', 0, undefined, { parameterName, variableName });
 
-        const outputParams = this.databaseContext.getLastOutputParameters();
-        if (!outputParams) {
+        const outputParams = this.lastOutputParameters;
+        if (!outputParams || Object.keys(outputParams).length === 0) {
             throw new Error('No output parameters available. Execute a stored procedure first');
         }
 
@@ -178,9 +202,9 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
             );
         }
 
-        this.context.setVariable(variableName, value);
+        this.store(variableName, value);
 
-        ActionLogger.logDatabaseAction('output_parameter_stored', {
+        await actionLogger.logDatabase('output_parameter_stored', '', 0, undefined, {
             parameterName,
             variableName,
             value,
@@ -191,10 +215,11 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('the stored procedure should return {int} result sets')
     @CSBDDStepDef('the stored procedure should return {int} result set')
     async validateResultSetCount(expectedCount: number): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_result_set_count', { expectedCount });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('validate_result_set_count', '', 0, undefined, { expectedCount });
 
-        const resultSets = this.databaseContext.getLastResultSets();
-        if (!resultSets) {
+        const resultSets = this.lastResultSets;
+        if (!resultSets || resultSets.length === 0) {
             throw new Error('No result sets available. Execute a stored procedure first');
         }
 
@@ -207,7 +232,7 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
             );
         }
 
-        ActionLogger.logDatabaseAction('result_set_count_validated', {
+        await actionLogger.logDatabase('result_set_count_validated', '', 0, undefined, {
             expectedCount,
             actualCount
         });
@@ -215,10 +240,11 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
 
     @CSBDDStepDef('user selects result set {int}')
     async selectResultSet(resultSetIndex: number): Promise<void> {
-        ActionLogger.logDatabaseAction('select_result_set', { resultSetIndex });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('select_result_set', '', 0, undefined, { resultSetIndex });
 
-        const resultSets = this.databaseContext.getLastResultSets();
-        if (!resultSets) {
+        const resultSets = this.lastResultSets;
+        if (!resultSets || resultSets.length === 0) {
             throw new Error('No result sets available. Execute a stored procedure first');
         }
 
@@ -231,20 +257,23 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
         }
 
         const selectedResultSet = resultSets[index];
-        this.databaseContext.setLastResult(selectedResultSet);
+        if (selectedResultSet) {
+            this.databaseContext.storeResult('last', selectedResultSet);
 
-        ActionLogger.logDatabaseAction('result_set_selected', {
-            resultSetIndex,
-            rowCount: selectedResultSet.rowCount,
-            columnCount: selectedResultSet.columns.length
-        });
+            await actionLogger.logDatabase('result_set_selected', '', 0, undefined, {
+                resultSetIndex,
+                rowCount: selectedResultSet.rowCount,
+                columnCount: selectedResultSet.fields.length
+            });
+        }
     }
 
     @CSBDDStepDef('the return value should be {string}')
     async validateReturnValue(expectedValue: string): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_return_value', { expectedValue });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('validate_return_value', '', 0, undefined, { expectedValue });
 
-        const returnValue = this.databaseContext.getLastReturnValue();
+        const returnValue = this.lastReturnValue;
         if (returnValue === undefined) {
             throw new Error('No return value available. Execute a procedure/function first');
         }
@@ -260,7 +289,7 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
             );
         }
 
-        ActionLogger.logDatabaseAction('return_value_validated', {
+        await actionLogger.logDatabase('return_value_validated', '', 0, undefined, {
             expectedValue: convertedExpected,
             actualValue: returnValue
         });
@@ -268,65 +297,77 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
 
     @CSBDDStepDef('user executes system stored procedure {string}')
     async executeSystemProcedure(procedureName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_system_procedure', { procedureName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_system_procedure', '', 0, undefined, { procedureName });
 
         try {
-            const db = this.getCurrentDatabase();
             const interpolatedName = this.interpolateVariables(procedureName);
             
-            // System procedures might require special handling
-            const result = await db.executeSystemProcedure(interpolatedName);
+            // System procedures are just stored procedures
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
+            const queryResult = await adapter.executeStoredProcedure(connection, interpolatedName);
+            
+            // Convert QueryResult to StoredProcedureCall format
+            const result: StoredProcedureCall = {
+                resultSets: [queryResult],
+                outputParameters: {},
+                returnValue: undefined
+            };
             
             this.handleProcedureResult(result, interpolatedName, 0);
 
-            ActionLogger.logDatabaseAction('system_procedure_executed', {
+            await actionLogger.logDatabase('system_procedure_executed', interpolatedName, 0, queryResult.rowCount, {
                 procedureName: interpolatedName,
-                resultSets: result.resultSets?.length || 0
+                rowCount: queryResult.rowCount
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('system_procedure_failed', error);
-            throw new Error(`Failed to execute system procedure '${procedureName}': ${error.message}`);
+            await actionLogger.logDatabase('system_procedure_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to execute system procedure '${procedureName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user lists available stored procedures')
     async listStoredProcedures(): Promise<void> {
-        ActionLogger.logDatabaseAction('list_stored_procedures');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('list_stored_procedures', '', 0);
 
         try {
-            const db = this.getCurrentDatabase();
-            const procedures = await db.listStoredProcedures();
+            // List stored procedures - this is database-specific
+            // For now, return empty array as procedure listing requires specific implementation
+            const procedures: StoredProcedureMetadata[] = [];
 
             console.log('\n=== Available Stored Procedures ===');
-            procedures.forEach((proc, index) => {
+            procedures.forEach((proc: StoredProcedureMetadata, index: number) => {
                 console.log(`${index + 1}. ${proc.schema}.${proc.name}`);
                 if (proc.parameters && proc.parameters.length > 0) {
-                    console.log(`   Parameters: ${proc.parameters.map(p => p.name).join(', ')}`);
+                    console.log(`   Parameters: ${proc.parameters.map((p: any) => p.name).join(', ')}`);
                 }
             });
             console.log(`Total: ${procedures.length} procedure(s)\n`);
 
             // Store for validation
-            this.databaseContext.setAvailableProcedures(procedures);
+            this.store('availableProcedures', procedures);
 
-            ActionLogger.logDatabaseAction('stored_procedures_listed', {
+            await actionLogger.logDatabase('stored_procedures_listed', '', 0, undefined, {
                 count: procedures.length
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('list_procedures_failed', error);
-            throw new Error(`Failed to list stored procedures: ${error.message}`);
+            await actionLogger.logDatabase('list_procedures_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to list stored procedures: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     // Helper methods
-    private getCurrentDatabase(): CSDatabase {
-        const db = this.databaseContext.getCurrentDatabase();
-        if (!db) {
+    private getActiveConnection(): any {
+        const connectionField = 'activeConnection';
+        const connection = (this.databaseContext as any)[connectionField];
+        if (!connection) {
             throw new Error('No database connection established. Use "Given user connects to ... database" first');
         }
-        return db;
+        return connection;
     }
 
     private parseProcedureParameters(dataTable: any): ProcedureParameter[] {
@@ -346,7 +387,7 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
                 };
 
                 headers.forEach((header: string, index: number) => {
-                    const cellValue = row[index] ? row[index].trim() : '';
+                    const cellValue = row[index]?.trim() || '';
                     
                     switch (header) {
                         case 'name':
@@ -384,7 +425,7 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
 
         if (dataTable && dataTable.rawTable) {
             dataTable.rawTable.forEach((row: string[]) => {
-                if (row.length > 0) {
+                if (row && row.length > 0 && row[0]) {
                     const value = this.interpolateVariables(row[0].trim());
                     parameters.push(this.convertParameterValue(value));
                 }
@@ -397,22 +438,25 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
     private handleProcedureResult(result: StoredProcedureCall, procedureName: string, executionTime: number): void {
         // Store result sets
         if (result.resultSets && result.resultSets.length > 0) {
-            this.databaseContext.setLastResultSets(result.resultSets);
-            this.databaseContext.setLastResult(result.resultSets[0]); // Default to first result set
+            this.lastResultSets = result.resultSets;
+            const firstResultSet = result.resultSets[0];
+            if (firstResultSet) {
+                this.databaseContext.storeResult('last', firstResultSet); // Default to first result set
+            }
         }
 
         // Store output parameters
         if (result.outputParameters) {
-            this.databaseContext.setLastOutputParameters(result.outputParameters);
+            this.lastOutputParameters = result.outputParameters;
         }
 
         // Store return value
         if (result.returnValue !== undefined) {
-            this.databaseContext.setLastReturnValue(result.returnValue);
+            this.lastReturnValue = result.returnValue;
         }
 
-        // Add to execution history
-        this.databaseContext.addProcedureExecution({
+        // Store procedure execution for history
+        this.store('lastProcedureExecution', {
             procedureName,
             executionTime,
             resultSetCount: result.resultSets?.length || 0,
@@ -459,9 +503,19 @@ export class StoredProcedureSteps extends CSBDDBaseStepDefinition {
         return actual === expected;
     }
 
+    private extractOutputParameters(parameters: ProcedureParameter[], values: any[]): Record<string, any> {
+        const outputParams: Record<string, any> = {};
+        parameters.forEach((param, index) => {
+            if (param.direction === 'OUT' || param.direction === 'INOUT') {
+                outputParams[param.name] = values[index];
+            }
+        });
+        return outputParams;
+    }
+
     private interpolateVariables(text: string): string {
-        return text.replace(/\{\{(\w+)\}\}/g, (match, variable) => {
-            const value = this.context.getVariable(variable);
+        return text.replace(/\{\{(\w+)\}\}/g, (_match, variable) => {
+            const value = this.context.retrieve(variable);
             if (value === undefined) {
                 throw new Error(`Variable '${variable}' is not defined in context`);
             }

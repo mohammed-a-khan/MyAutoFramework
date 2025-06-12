@@ -13,6 +13,7 @@ import {
   DataSetInfo,
   AIHealingAttempt,
   Screenshot,
+  ScreenshotType,
   ConsoleLog,
   NetworkLog,
   ElementInfo,
@@ -38,6 +39,15 @@ import { Logger } from '../../core/utils/Logger';
  * 
  * Production-ready implementation with zero dependencies.
  */
+
+interface ScenarioPerformanceMetrics {
+  totalDuration: number;
+  stepCount: number;
+  avgStepDuration: number;
+  actionCount: number;
+  networkRequests: number;
+  successRate: number;
+}
 export class ScenarioReportGenerator {
   private readonly logger = Logger.getInstance();
   
@@ -64,8 +74,8 @@ ${this.generateScenarioScripts()}`;
    * Generate scenario filters
    */
   private generateScenarioFilters(scenarios: ScenarioReport[]): string {
-    const features = [...new Set(scenarios.map(s => s.feature))];
-    const tags = [...new Set(scenarios.flatMap(s => s.tags))];
+    const features = [...new Set(scenarios.map((s: ScenarioReport) => s.feature))];
+    const tags = [...new Set(scenarios.flatMap((s: ScenarioReport) => s.tags))];
     
     return `
 <div class="scenario-filters">
@@ -98,7 +108,7 @@ ${this.generateScenarioScripts()}`;
             <label>Features</label>
             <select class="filter-select" id="feature-filter" multiple>
                 <option value="">All Features</option>
-                ${features.map(feature => 
+                ${features.map((feature: string) => 
                   `<option value="${feature}">${feature}</option>`
                 ).join('')}
             </select>
@@ -108,7 +118,7 @@ ${this.generateScenarioScripts()}`;
             <label>Tags</label>
             <select class="filter-select" id="tag-filter" multiple>
                 <option value="">All Tags</option>
-                ${tags.map(tag => 
+                ${tags.map((tag: string) => 
                   `<option value="${tag}">${tag}</option>`
                 ).join('')}
             </select>
@@ -262,7 +272,7 @@ ${this.generateScenarioScripts()}`;
         <div class="metadata-item">
             <span class="metadata-label">Tags</span>
             <span class="metadata-value">
-                ${scenario.tags.map(tag => 
+                ${scenario.tags.map((tag: string) => 
                   `<span class="tag-badge">${tag}</span>`
                 ).join('')}
             </span>
@@ -306,7 +316,7 @@ ${this.generateScenarioScripts()}`;
         <div class="data-set-parameters">
             <h4>Parameters</h4>
             <table class="parameters-table">
-                ${Object.entries(dataSet.parameters).map(([key, value]) => `
+                ${Object.entries(dataSet.parameters).map(([key, value]: [string, any]) => `
                 <tr>
                     <td class="param-key">${key}</td>
                     <td class="param-value">${this.formatParameterValue(value)}</td>
@@ -347,15 +357,15 @@ ${this.generateScenarioScripts()}`;
     
     <div class="timeline-visualization">
         <div class="timeline-track">
-            ${scenario.hooks.filter(h => h.type === 'before').map(hook => 
+            ${scenario.hooks.filter((h: HookReport) => h.type === 'before').map((hook: HookReport) => 
               this.generateTimelineSegment(hook, 'hook before', scenario.startTime, totalDuration)
             ).join('')}
             
-            ${steps.map(step => 
+            ${steps.map((step: StepReport) => 
               this.generateTimelineSegment(step, 'step', scenario.startTime, totalDuration)
             ).join('')}
             
-            ${scenario.hooks.filter(h => h.type === 'after').map(hook => 
+            ${scenario.hooks.filter((h: HookReport) => h.type === 'after').map((hook: HookReport) => 
               this.generateTimelineSegment(hook, 'hook after', scenario.startTime, totalDuration)
             ).join('')}
         </div>
@@ -416,14 +426,14 @@ ${this.generateScenarioScripts()}`;
     ${scenario.hooks.filter(h => h.type === 'before').length > 0 ? `
     <div class="hooks-container before-hooks">
         <h4 class="hooks-label">Before Hooks</h4>
-        ${scenario.hooks.filter(h => h.type === 'before').map(hook => 
+        ${scenario.hooks.filter((h: HookReport) => h.type === 'before').map((hook: HookReport) => 
           this.generateHook(hook)
         ).join('')}
     </div>
     ` : ''}
     
     <div class="steps-container">
-        ${scenario.steps.map((step, index) => 
+        ${scenario.steps.map((step: StepReport, index: number) => 
           this.generateDetailedStep(step, index)
         ).join('')}
     </div>
@@ -431,7 +441,7 @@ ${this.generateScenarioScripts()}`;
     ${scenario.hooks.filter(h => h.type === 'after').length > 0 ? `
     <div class="hooks-container after-hooks">
         <h4 class="hooks-label">After Hooks</h4>
-        ${scenario.hooks.filter(h => h.type === 'after').map(hook => 
+        ${scenario.hooks.filter((h: HookReport) => h.type === 'after').map((hook: HookReport) => 
           this.generateHook(hook)
         ).join('')}
     </div>
@@ -550,9 +560,9 @@ ${this.generateScenarioScripts()}`;
 <div class="step-data-table">
     <h5>Data Table</h5>
     <table class="data-table">
-        ${rows.map((row, index) => `
+        ${rows.map((row: DataTableRow, index: number) => `
         <tr class="${index === 0 ? 'header-row' : 'data-row'}">
-            ${row.cells.map(cell => `
+            ${row.cells.map((cell: string) => `
             <${index === 0 ? 'th' : 'td'}>${cell}</${index === 0 ? 'th' : 'td'}>
             `).join('')}
         </tr>
@@ -580,7 +590,7 @@ ${this.generateScenarioScripts()}`;
 <div class="step-actions">
     <h5>Actions (${actions.length})</h5>
     <div class="actions-timeline">
-        ${actions.map((action, index) => `
+        ${actions.map((action: ActionLog, index: number) => `
         <div class="action-entry ${action.success ? 'success' : 'failed'}">
             <div class="action-connector"></div>
             
@@ -597,7 +607,7 @@ ${this.generateScenarioScripts()}`;
                     
                     ${action.parameters.length > 0 ? `
                     <div class="action-parameters">
-                        Parameters: ${action.parameters.map(p => 
+                        Parameters: ${action.parameters.map((p: any) => 
                           `<code>${JSON.stringify(p)}</code>`
                         ).join(', ')}
                     </div>
@@ -665,7 +675,7 @@ ${this.generateScenarioScripts()}`;
             <div class="property">
                 <span class="property-label">Attributes:</span>
                 <div class="attributes-list">
-                    ${Object.entries(elementInfo.attributes).map(([key, value]) => 
+                    ${Object.entries(elementInfo.attributes).map(([key, value]: [string, string]) => 
                       `<div class="attribute">
                         <code>${key}="${value}"</code>
                       </div>`
@@ -686,7 +696,7 @@ ${this.generateScenarioScripts()}`;
 <div class="step-embeddings">
     <h5>Attachments (${embeddings.length})</h5>
     <div class="embeddings-grid">
-        ${embeddings.map((embed, index) => {
+        ${embeddings.map((embed: Embedding, index: number) => {
           if (embed.mimeType.startsWith('image/')) {
             return `
             <div class="embedding-item image">
@@ -742,7 +752,7 @@ ${this.generateScenarioScripts()}`;
         
         ${error.context ? `
         <div class="error-context">
-            ${Object.entries(error.context).map(([key, value]) => 
+            ${Object.entries(error.context).map(([key, value]: [string, any]) => 
               `<div class="context-item">
                 <span class="context-key">${key}:</span>
                 <span class="context-value">${value}</span>
@@ -812,7 +822,7 @@ ${this.generateScenarioScripts()}`;
    */
   private generateActionTypeBreakdown(actions: ActionLog[]): string {
     const typeCount: Record<string, number> = {};
-    actions.forEach(action => {
+    actions.forEach((action: ActionLog) => {
       typeCount[action.type] = (typeCount[action.type] || 0) + 1;
     });
     
@@ -847,7 +857,7 @@ ${this.generateScenarioScripts()}`;
     return `
 <div class="action-timeline-viz">
     <div class="timeline-track">
-        ${actions.map(action => {
+        ${actions.map((action: ActionLog) => {
           const actionStart = action.timestamp.getTime();
           const offset = ((actionStart - startTime) / duration) * 100;
           const width = (action.duration / duration) * 100;
@@ -1009,8 +1019,8 @@ ${this.generateScenarioScripts()}`;
    * Generate network log entry
    */
   private generateNetworkLogEntry(log: NetworkLog, index: number, scenario: ScenarioReport): string {
-    const startOffset = log.startTime.getTime() - scenario.startTime.getTime();
-    const duration = log.endTime.getTime() - log.startTime.getTime();
+    const startOffset = log.startTime ? log.startTime.getTime() - scenario.startTime.getTime() : 0;
+    const duration = log.endTime && log.startTime ? log.endTime.getTime() - log.startTime.getTime() : 0;
     const totalDuration = scenario.endTime.getTime() - scenario.startTime.getTime();
     
     return `
@@ -1020,7 +1030,7 @@ ${this.generateScenarioScripts()}`;
         <span class="network-method ${log.method.toLowerCase()}">${log.method}</span>
         <span class="network-status status-${Math.floor(log.status / 100)}xx">${log.status}</span>
         <span class="network-type">${log.resourceType}</span>
-        <span class="network-size">${this.formatBytes(log.size)}</span>
+        <span class="network-size">${this.formatBytes(log.size || 0)}</span>
         <span class="network-time">${duration}ms</span>
         <div class="network-bar">
             <div class="bar-track">
@@ -1036,7 +1046,7 @@ ${this.generateScenarioScripts()}`;
         <div class="details-section">
             <h5>Request Headers</h5>
             <div class="headers-list">
-                ${Object.entries(log.requestHeaders).map(([key, value]) => 
+                ${Object.entries(log.headers).map(([key, value]) => 
                   `<div class="header-item">
                     <span class="header-key">${key}:</span>
                     <span class="header-value">${value}</span>
@@ -1045,6 +1055,7 @@ ${this.generateScenarioScripts()}`;
             </div>
         </div>
         
+        ${log.responseHeaders ? `
         <div class="details-section">
             <h5>Response Headers</h5>
             <div class="headers-list">
@@ -1056,6 +1067,7 @@ ${this.generateScenarioScripts()}`;
                 ).join('')}
             </div>
         </div>
+        ` : ''}
         
         ${log.requestBody ? `
         <div class="details-section">
@@ -1067,7 +1079,7 @@ ${this.generateScenarioScripts()}`;
         ${log.responseBody ? `
         <div class="details-section">
             <h5>Response Body</h5>
-            <pre class="body-content">${this.formatResponseBody(log.responseBody, log.responseHeaders['content-type'])}</pre>
+            <pre class="body-content">${this.formatResponseBody(log.responseBody, log.responseHeaders?.['content-type'])}</pre>
         </div>
         ` : ''}
     </div>
@@ -1081,13 +1093,14 @@ ${this.generateScenarioScripts()}`;
     const byType: Record<string, { count: number; size: number }> = {};
     const byStatus: Record<string, number> = {};
     
-    networkLogs.forEach(log => {
+    networkLogs.forEach((log: NetworkLog) => {
       // By type
-      if (!byType[log.resourceType]) {
-        byType[log.resourceType] = { count: 0, size: 0 };
+      const resourceType = log.resourceType || 'unknown';
+      if (!byType[resourceType]) {
+        byType[resourceType] = { count: 0, size: 0 };
       }
-      byType[log.resourceType].count++;
-      byType[log.resourceType].size += log.size;
+      byType[resourceType].count++;
+      byType[resourceType].size += log.size || 0;
       
       // By status
       const statusGroup = `${Math.floor(log.status / 100)}xx`;
@@ -1099,7 +1112,7 @@ ${this.generateScenarioScripts()}`;
     <div class="breakdown-section">
         <h4>By Resource Type</h4>
         <div class="breakdown-chart">
-            ${Object.entries(byType).map(([type, data]) => {
+            ${Object.entries(byType).map(([type, data]: [string, { count: number; size: number }]) => {
               const percentage = (data.count / networkLogs.length) * 100;
               return `
               <div class="breakdown-item">
@@ -1118,7 +1131,7 @@ ${this.generateScenarioScripts()}`;
     <div class="breakdown-section">
         <h4>By Status Code</h4>
         <div class="breakdown-chart">
-            ${Object.entries(byStatus).map(([status, count]) => {
+            ${Object.entries(byStatus).map(([status, count]: [string, number]) => {
               const percentage = (count / networkLogs.length) * 100;
               return `
               <div class="breakdown-item">
@@ -1153,11 +1166,11 @@ ${this.generateScenarioScripts()}`;
     <div class="screenshots-section">
         <h4>Screenshots (${screenshots.length})</h4>
         <div class="screenshots-grid">
-            ${screenshots.map((screenshot, index) => `
+            ${screenshots.map((screenshot: Screenshot) => `
             <div class="screenshot-item" onclick="openImageModal('${screenshot.path}')">
-                <img src="${screenshot.path}" alt="${screenshot.name}">
+                <img src="${screenshot.path}" alt="${screenshot.description}">
                 <div class="screenshot-info">
-                    <span class="screenshot-name">${screenshot.name}</span>
+                    <span class="screenshot-name">${screenshot.description}</span>
                     <span class="screenshot-timestamp">${this.formatTime(screenshot.timestamp)}</span>
                 </div>
             </div>
@@ -1170,10 +1183,10 @@ ${this.generateScenarioScripts()}`;
     <div class="videos-section">
         <h4>Videos (${videos.length})</h4>
         <div class="videos-grid">
-            ${videos.map((video, index) => `
+            ${videos.map((video: { name?: string; path: string }, index: number) => `
             <div class="video-item">
                 <video controls>
-                    <source src="${video}" type="video/webm">
+                    <source src="${video.path}" type="video/webm">
                     Your browser does not support the video tag.
                 </video>
                 <span class="video-name">Recording ${index + 1}</span>
@@ -1221,7 +1234,7 @@ ${this.generateScenarioScripts()}`;
     <div class="error-context-section">
         <h4>Error Context</h4>
         <div class="context-grid">
-            ${Object.entries(error.context).map(([key, value]) => `
+            ${Object.entries(error.context).map(([key, value]: [string, any]) => `
             <div class="context-item">
                 <span class="context-key">${key}</span>
                 <span class="context-value">${this.formatContextValue(value)}</span>
@@ -1264,7 +1277,7 @@ ${this.generateScenarioScripts()}`;
     </div>
     
     <div class="healing-attempts">
-        ${healingAttempts.map((attempt, index) => `
+        ${healingAttempts.map((attempt: AIHealingAttempt, index: number) => `
         <div class="healing-attempt ${attempt.success ? 'success' : 'failed'}">
             <div class="attempt-header">
                 <span class="attempt-number">#${index + 1}</span>
@@ -1281,7 +1294,7 @@ ${this.generateScenarioScripts()}`;
                 ${attempt.success ? `
                 <div class="detail-row">
                     <span class="detail-label">New Locator:</span>
-                    <code>${attempt.newLocator}</code>
+                    <code>${attempt.healedLocator}</code>
                 </div>
                 ` : ''}
                 
@@ -1298,10 +1311,10 @@ ${this.generateScenarioScripts()}`;
                     </div>
                 </div>
                 
-                ${attempt.reasoning ? `
+                ${attempt.recommendation ? `
                 <div class="detail-row">
                     <span class="detail-label">Reasoning:</span>
-                    <p class="reasoning-text">${attempt.reasoning}</p>
+                    <p class="reasoning-text">${attempt.recommendation}</p>
                 </div>
                 ` : ''}
                 
@@ -1337,9 +1350,10 @@ ${this.generateScenarioScripts()}`;
       debug: []
     };
     
-    consoleLogs.forEach(log => {
-      if (logsByLevel[log.level]) {
-        logsByLevel[log.level].push(log);
+    consoleLogs.forEach((log: ConsoleLog) => {
+      const level = log.level as keyof typeof logsByLevel;
+      if (level in logsByLevel) {
+        logsByLevel[level]?.push(log);
       }
     });
     
@@ -1350,24 +1364,24 @@ ${this.generateScenarioScripts()}`;
     <div class="logs-filter">
         <label class="log-filter-option">
             <input type="checkbox" name="log-level" value="error" checked>
-            <span class="log-badge error">Error (${logsByLevel.error.length})</span>
+            <span class="log-badge error">Error (${logsByLevel['error']?.length || 0})</span>
         </label>
         <label class="log-filter-option">
             <input type="checkbox" name="log-level" value="warning" checked>
-            <span class="log-badge warning">Warning (${logsByLevel.warning.length})</span>
+            <span class="log-badge warning">Warning (${logsByLevel['warning']?.length || 0})</span>
         </label>
         <label class="log-filter-option">
             <input type="checkbox" name="log-level" value="info" checked>
-            <span class="log-badge info">Info (${logsByLevel.info.length})</span>
+            <span class="log-badge info">Info (${logsByLevel['info']?.length || 0})</span>
         </label>
         <label class="log-filter-option">
             <input type="checkbox" name="log-level" value="debug">
-            <span class="log-badge debug">Debug (${logsByLevel.debug.length})</span>
+            <span class="log-badge debug">Debug (${logsByLevel['debug']?.length || 0})</span>
         </label>
     </div>
     
     <div class="logs-container">
-        ${consoleLogs.map((log, index) => `
+        ${consoleLogs.map((log: ConsoleLog) => `
         <div class="console-log ${log.level}" data-log-level="${log.level}">
             <span class="log-timestamp">${this.formatTime(log.timestamp)}</span>
             <span class="log-level ${log.level}">${log.level.toUpperCase()}</span>
@@ -1438,27 +1452,29 @@ ${this.generateScenarioScripts()}`;
    * Format date time
    */
   private formatDateTime(date: Date): string {
-    return date.toLocaleString('en-US', {
+    const dateStr = date.toLocaleString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
-      fractionalSecondDigits: 3
+      second: '2-digit'
     });
+    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+    return `${dateStr}.${milliseconds}`;
   }
 
   /**
    * Format time only
    */
   private formatTime(date: Date): string {
-    return date.toLocaleTimeString('en-US', {
+    const timeStr = date.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
-      fractionalSecondDigits: 3
+      second: '2-digit'
     });
+    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+    return `${timeStr}.${milliseconds}`;
   }
 
   /**
@@ -1535,9 +1551,10 @@ ${this.generateScenarioScripts()}`;
   /**
    * Format step location
    */
-  private formatStepLocation(location: string): string {
+  private formatStepLocation(location: string | undefined): string {
+    if (!location) return '';
     const parts = location.split(':');
-    if (parts.length >= 2) {
+    if (parts.length >= 2 && parts[0]) {
       const file = parts[0].split('/').pop() || parts[0];
       return `${file}:${parts[1]}`;
     }
@@ -1551,12 +1568,13 @@ ${this.generateScenarioScripts()}`;
     const labels: Record<ActionType, string> = {
       [ActionType.NAVIGATION]: 'Navigation',
       [ActionType.CLICK]: 'Click',
-      [ActionType.INPUT]: 'Input',
-      [ActionType.VALIDATION]: 'Validation',
+      [ActionType.TYPE]: 'Type',
+      [ActionType.SELECT]: 'Select',
       [ActionType.WAIT]: 'Wait',
+      [ActionType.ASSERTION]: 'Assertion',
+      [ActionType.API_CALL]: 'API Call',
+      [ActionType.DB_QUERY]: 'Database',
       [ActionType.SCREENSHOT]: 'Screenshot',
-      [ActionType.API]: 'API Call',
-      [ActionType.DATABASE]: 'Database',
       [ActionType.CUSTOM]: 'Custom'
     };
     return labels[type] || type;
@@ -1569,12 +1587,13 @@ ${this.generateScenarioScripts()}`;
     const colors: Record<ActionType, string> = {
       [ActionType.NAVIGATION]: '#4CAF50',
       [ActionType.CLICK]: '#2196F3',
-      [ActionType.INPUT]: '#9C27B0',
-      [ActionType.VALIDATION]: '#FF9800',
+      [ActionType.TYPE]: '#9C27B0',
+      [ActionType.SELECT]: '#673AB7',
       [ActionType.WAIT]: '#795548',
+      [ActionType.ASSERTION]: '#FF9800',
+      [ActionType.API_CALL]: '#F44336',
+      [ActionType.DB_QUERY]: '#3F51B5',
       [ActionType.SCREENSHOT]: '#00BCD4',
-      [ActionType.API]: '#F44336',
-      [ActionType.DATABASE]: '#3F51B5',
       [ActionType.CUSTOM]: '#607D8B'
     };
     return colors[type] || '#757575';
@@ -1592,7 +1611,7 @@ ${this.generateScenarioScripts()}`;
   /**
    * Calculate performance metrics
    */
-  private calculatePerformanceMetrics(scenario: ScenarioReport): any {
+  private calculatePerformanceMetrics(scenario: ScenarioReport): ScenarioPerformanceMetrics {
     const allActions = scenario.steps.flatMap(step => step.actions);
     
     return {
@@ -1608,7 +1627,7 @@ ${this.generateScenarioScripts()}`;
   /**
    * Generate performance insights
    */
-  private generatePerformanceInsights(metrics: any, scenario: ScenarioReport): string {
+  private generatePerformanceInsights(metrics: ScenarioPerformanceMetrics, scenario: ScenarioReport): string {
     const insights: string[] = [];
     
     // Duration insights
@@ -1648,7 +1667,7 @@ ${this.generateScenarioScripts()}`;
    * Calculate total data transferred
    */
   private calculateTotalDataTransferred(networkLogs: NetworkLog[]): string {
-    const total = networkLogs.reduce((sum, log) => sum + log.size, 0);
+    const total = networkLogs.reduce((sum, log) => sum + (log.size || 0), 0);
     return this.formatBytes(total);
   }
 
@@ -1658,7 +1677,7 @@ ${this.generateScenarioScripts()}`;
   private calculateAvgResponseTime(networkLogs: NetworkLog[]): number {
     if (networkLogs.length === 0) return 0;
     const total = networkLogs.reduce((sum, log) => {
-      const duration = log.endTime.getTime() - log.startTime.getTime();
+      const duration = (log.endTime?.getTime() || 0) - (log.startTime?.getTime() || 0);
       return sum + duration;
     }, 0);
     return Math.round(total / networkLogs.length);
@@ -1731,35 +1750,57 @@ ${this.generateScenarioScripts()}`;
   private collectAllScreenshots(scenario: ScenarioReport): Screenshot[] {
     const screenshots: Screenshot[] = [];
     
-    scenario.steps.forEach((step, stepIndex) => {
+    scenario.steps.forEach((step: StepReport, stepIndex: number) => {
       // Step screenshots
       if (step.result.screenshot) {
         screenshots.push({
+          id: `step-${stepIndex}`,
+          filename: `step-${stepIndex}.png`,
           path: step.result.screenshot,
-          name: `Step ${stepIndex + 1} - ${step.text}`,
-          timestamp: step.endTime
-        });
+          scenarioId: scenario.scenarioId,
+          stepId: step.stepId,
+          type: ScreenshotType.STEP,
+          timestamp: step.endTime,
+          description: `Step ${stepIndex + 1} - ${step.text}`,
+          size: 0,
+          dimensions: { width: 0, height: 0 }
+        } as Screenshot);
       }
       
       // Action screenshots
-      step.actions.forEach((action, actionIndex) => {
+      step.actions.forEach((action: ActionLog, actionIndex: number) => {
         if (action.screenshot) {
           screenshots.push({
+            id: `action-${stepIndex}-${actionIndex}`,
+            filename: `action-${stepIndex}-${actionIndex}.png`,
             path: action.screenshot,
-            name: `Action - ${action.action}`,
-            timestamp: action.timestamp
-          });
+            scenarioId: scenario.scenarioId,
+            stepId: step.stepId,
+            type: ScreenshotType.DEBUG,
+            timestamp: action.timestamp,
+            description: `Action - ${action.action}`,
+            size: 0,
+            dimensions: { width: 0, height: 0 }
+          } as Screenshot);
         }
       });
       
       // Embedded screenshots
-      step.embeddings.forEach((embed, embedIndex) => {
+      step.embeddings.forEach((embed: Embedding, embedIndex: number) => {
         if (embed.mimeType.startsWith('image/')) {
           screenshots.push({
+            id: `embed-${stepIndex}-${embedIndex}`,
+            filename: embed.name || `embed-${stepIndex}-${embedIndex}.png`,
             path: `data:${embed.mimeType};base64,${embed.data}`,
-            name: embed.name || `Embedded Image ${embedIndex + 1}`,
-            timestamp: step.endTime
-          });
+            base64: embed.data,
+            scenarioId: scenario.scenarioId,
+            stepId: step.stepId,
+            type: ScreenshotType.STEP,
+            timestamp: step.endTime,
+            description: embed.name || `Embedded Image ${embedIndex + 1}`,
+            size: 0,
+            dimensions: { width: 0, height: 0 }
+          } as Screenshot);
         }
       });
     });
@@ -1773,7 +1814,7 @@ ${this.generateScenarioScripts()}`;
   private formatStackTrace(stack: string): string {
     return stack
       .split('\n')
-      .map(line => {
+      .map((line: string) => {
         // Highlight file paths
         return line.replace(/(\S+\.(ts|js):\d+:\d+)/g, '<span class="stack-file">$1</span>');
       })
@@ -1863,7 +1904,7 @@ ${this.generateScenarioScripts()}`;
    */
   private calculateAvgConfidence(attempts: AIHealingAttempt[]): number {
     if (attempts.length === 0) return 0;
-    const total = attempts.reduce((sum, attempt) => sum + attempt.confidence, 0);
+    const total = attempts.reduce((sum: number, attempt: AIHealingAttempt) => sum + attempt.confidence, 0);
     return Math.round((total / attempts.length) * 100);
   }
 
@@ -1894,12 +1935,13 @@ ${this.generateScenarioScripts()}`;
     // Strategy effectiveness
     const strategySuccess: Record<string, { total: number; success: number }> = {};
     attempts.forEach(attempt => {
-      if (!strategySuccess[attempt.strategy]) {
-        strategySuccess[attempt.strategy] = { total: 0, success: 0 };
+      const strategy = attempt.strategy;
+      if (!strategySuccess[strategy]) {
+        strategySuccess[strategy] = { total: 0, success: 0 };
       }
-      strategySuccess[attempt.strategy].total++;
+      strategySuccess[strategy].total++;
       if (attempt.success) {
-        strategySuccess[attempt.strategy].success++;
+        strategySuccess[strategy].success++;
       }
     });
     
@@ -1953,6 +1995,7 @@ ${this.generateScenarioScripts()}`;
    * Generate scenario styles
    */
   private generateScenarioStyles(theme: ReportTheme): string {
+    const primaryDark = theme.colors?.primaryDark || theme.primaryColor;
     return `
 <style>
 /* Scenario Reports Styles */
@@ -2058,7 +2101,7 @@ ${this.generateScenarioScripts()}`;
 }
 
 .btn-apply-filters:hover {
-    background: ${theme.primaryDark};
+    background: ${primaryDark};
 }
 
 .btn-reset-filters {

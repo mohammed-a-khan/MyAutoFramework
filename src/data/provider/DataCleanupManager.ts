@@ -1,5 +1,4 @@
 // src/data/provider/DataCleanupManager.ts
-
 import { TestData, CleanupStrategy, CleanupTask, CleanupStatistics } from '../types/data.types';
 import { logger } from '../../core/utils/Logger';
 import { ActionLogger } from '../../core/logging/ActionLogger';
@@ -368,7 +367,7 @@ export class DataCleanupManager {
         if (task.data.redisKeys && task.data.redisConnection) {
             const { RedisAdapter } = await import('../../database/adapters/RedisAdapter');
             const redis = new RedisAdapter();
-            await redis.connect({
+            const connection = await redis.connect({
                 type: 'redis',
                 host: task.data.redisConnection.host,
                 port: task.data.redisConnection.port,
@@ -378,20 +377,20 @@ export class DataCleanupManager {
             
             try {
                 for (const key of task.data.redisKeys) {
-                    await redis.execute(`DEL ${key}`);
+                    await redis.query(connection, `DEL ${key}`);
                 }
                 
                 if (task.data.redisPattern) {
-                    const result = await redis.execute(`KEYS ${task.data.redisPattern}`);
-                    const keys = result.rows as string[];
+                    const result = await redis.query(connection, `KEYS ${task.data.redisPattern}`);
+                    const keys = result.rows.map(row => row.value || row.item_0);
                     if (keys && keys.length > 0) {
                         for (const key of keys) {
-                            await redis.execute(`DEL ${key}`);
+                            await redis.query(connection, `DEL ${key}`);
                         }
                     }
                 }
             } finally {
-                await redis.disconnect();
+                await redis.disconnect(connection);
             }
         }
         

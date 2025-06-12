@@ -3,10 +3,8 @@
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { APIContext } from '../../api/context/APIContext';
-import { CertificateManager } from '../../api/auth/CertificateManager';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { FileUtils } from '../../core/utils/FileUtils';
-import { CryptoUtils } from '../../core/utils/CryptoUtils';
 import { ConfigurationManager } from '../../core/configuration/ConfigurationManager';
 
 /**
@@ -14,11 +12,8 @@ import { ConfigurationManager } from '../../core/configuration/ConfigurationMana
  * Supports all authentication methods: Basic, Bearer, API Key, OAuth2, Certificate, NTLM, AWS
  */
 export class AuthenticationSteps extends CSBDDBaseStepDefinition {
-    private certificateManager: CertificateManager;
-
     constructor() {
         super();
-        this.certificateManager = new CertificateManager();
     }
 
     /**
@@ -27,7 +22,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets bearer token {string}")
     async setBearerToken(token: string): Promise<void> {
-        ActionLogger.logAPIAction('setBearerToken', { tokenLength: token.length });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setBearerToken', { tokenLength: token.length });
         
         try {
             const currentContext = this.getAPIContext();
@@ -36,19 +32,17 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             // Set Authorization header
             currentContext.setHeader('Authorization', `Bearer ${interpolatedToken}`);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'bearer',
-                token: interpolatedToken
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'bearer');
+            currentContext.setVariable('authToken', interpolatedToken);
             
-            ActionLogger.logAPIAction('bearerTokenSet', { 
+            await actionLogger.logAction('bearerTokenSet', { 
                 tokenLength: interpolatedToken.length,
                 tokenPreview: this.maskToken(interpolatedToken)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set bearer token', error);
-            throw new Error(`Failed to set bearer token: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set bearer token' });
+            throw new Error(`Failed to set bearer token: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -58,7 +52,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets basic auth username {string} and password {string}")
     async setBasicAuth(username: string, password: string): Promise<void> {
-        ActionLogger.logAPIAction('setBasicAuth', { username });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setBasicAuth', { username });
         
         try {
             const currentContext = this.getAPIContext();
@@ -71,20 +66,18 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             
             currentContext.setHeader('Authorization', `Basic ${encodedCredentials}`);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'basic',
-                username: interpolatedUsername,
-                password: interpolatedPassword
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'basic');
+            currentContext.setVariable('authUsername', interpolatedUsername);
+            currentContext.setVariable('authPassword', interpolatedPassword);
             
-            ActionLogger.logAPIAction('basicAuthSet', { 
+            await actionLogger.logAction('basicAuthSet', { 
                 username: interpolatedUsername,
                 credentialsLength: credentials.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set basic auth', error);
-            throw new Error(`Failed to set basic authentication: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set basic auth' });
+            throw new Error(`Failed to set basic authentication: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -94,7 +87,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API key header {string} to {string}")
     async setAPIKeyHeader(headerName: string, apiKey: string): Promise<void> {
-        ActionLogger.logAPIAction('setAPIKeyHeader', { headerName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setAPIKeyHeader', { headerName });
         
         try {
             const currentContext = this.getAPIContext();
@@ -102,22 +96,20 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             
             currentContext.setHeader(headerName, interpolatedKey);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'apikey',
-                location: 'header',
-                name: headerName,
-                value: interpolatedKey
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'apikey');
+            currentContext.setVariable('authLocation', 'header');
+            currentContext.setVariable('authKeyName', headerName);
+            currentContext.setVariable('authKeyValue', interpolatedKey);
             
-            ActionLogger.logAPIAction('apiKeyHeaderSet', { 
+            await actionLogger.logAction('apiKeyHeaderSet', { 
                 headerName,
                 keyLength: interpolatedKey.length,
                 keyPreview: this.maskToken(interpolatedKey)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set API key header', error);
-            throw new Error(`Failed to set API key header: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set API key header' });
+            throw new Error(`Failed to set API key header: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -127,30 +119,32 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets API key parameter {string} to {string}")
     async setAPIKeyParameter(paramName: string, apiKey: string): Promise<void> {
-        ActionLogger.logAPIAction('setAPIKeyParameter', { paramName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setAPIKeyParameter', { paramName });
         
         try {
             const currentContext = this.getAPIContext();
             const interpolatedKey = await this.interpolateValue(apiKey);
             
-            currentContext.setQueryParameter(paramName, interpolatedKey);
+            // Set query parameter
+            const queryParams = currentContext.getVariable('queryParams') || {};
+            queryParams[paramName] = interpolatedKey;
+            currentContext.setVariable('queryParams', queryParams);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'apikey',
-                location: 'query',
-                name: paramName,
-                value: interpolatedKey
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'apikey');
+            currentContext.setVariable('authLocation', 'query');
+            currentContext.setVariable('authKeyName', paramName);
+            currentContext.setVariable('authKeyValue', interpolatedKey);
             
-            ActionLogger.logAPIAction('apiKeyParameterSet', { 
+            await actionLogger.logAction('apiKeyParameterSet', { 
                 paramName,
                 keyLength: interpolatedKey.length,
                 keyPreview: this.maskToken(interpolatedKey)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set API key parameter', error);
-            throw new Error(`Failed to set API key parameter: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set API key parameter' });
+            throw new Error(`Failed to set API key parameter: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -163,7 +157,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets OAuth2 client credentials:")
     async setOAuth2ClientCredentials(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setOAuth2ClientCredentials', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setOAuth2ClientCredentials', {});
         
         try {
             const currentContext = this.getAPIContext();
@@ -186,25 +181,23 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
                 throw new Error('OAuth2 client credentials require: clientId, clientSecret, tokenUrl');
             }
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'oauth2',
-                flow: 'client_credentials',
-                clientId: credentials.clientId,
-                clientSecret: credentials.clientSecret,
-                tokenUrl: credentials.tokenUrl,
-                scope: credentials.scope || '',
-                grantType: 'client_credentials'
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'oauth2');
+            currentContext.setVariable('oauth2Flow', 'client_credentials');
+            currentContext.setVariable('oauth2ClientId', credentials.clientId);
+            currentContext.setVariable('oauth2ClientSecret', credentials.clientSecret);
+            currentContext.setVariable('oauth2TokenUrl', credentials.tokenUrl);
+            currentContext.setVariable('oauth2Scope', credentials.scope || '');
+            currentContext.setVariable('oauth2GrantType', 'client_credentials');
             
-            ActionLogger.logAPIAction('oauth2ClientCredentialsSet', { 
+            await actionLogger.logAction('oauth2ClientCredentialsSet', { 
                 clientId: credentials.clientId,
                 tokenUrl: credentials.tokenUrl,
                 hasScope: !!credentials.scope
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set OAuth2 client credentials', error);
-            throw new Error(`Failed to set OAuth2 client credentials: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set OAuth2 client credentials' });
+            throw new Error(`Failed to set OAuth2 client credentials: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -214,7 +207,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets OAuth2 access token {string}")
     async setOAuth2AccessToken(accessToken: string): Promise<void> {
-        ActionLogger.logAPIAction('setOAuth2AccessToken', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setOAuth2AccessToken', {});
         
         try {
             const currentContext = this.getAPIContext();
@@ -223,20 +217,18 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             // Set Authorization header
             currentContext.setHeader('Authorization', `Bearer ${interpolatedToken}`);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'oauth2',
-                flow: 'manual',
-                accessToken: interpolatedToken
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'oauth2');
+            currentContext.setVariable('oauth2Flow', 'manual');
+            currentContext.setVariable('oauth2AccessToken', interpolatedToken);
             
-            ActionLogger.logAPIAction('oauth2AccessTokenSet', { 
+            await actionLogger.logAction('oauth2AccessTokenSet', { 
                 tokenLength: interpolatedToken.length,
                 tokenPreview: this.maskToken(interpolatedToken)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set OAuth2 access token', error);
-            throw new Error(`Failed to set OAuth2 access token: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set OAuth2 access token' });
+            throw new Error(`Failed to set OAuth2 access token: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -246,7 +238,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user loads certificate from {string} with password {string}")
     async loadCertificate(certPath: string, password: string): Promise<void> {
-        ActionLogger.logAPIAction('loadCertificate', { certPath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('loadCertificate', { certPath });
         
         try {
             const currentContext = this.getAPIContext();
@@ -259,29 +252,31 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             }
             
             // Load certificate
-            const certificate = await this.certificateManager.loadCertificate({
-                certPath: resolvedPath,
+            // Read certificate file
+            const certContent = await FileUtils.readFile(resolvedPath);
+            
+            // Create certificate config for API context
+            const certConfig = {
+                cert: certContent.toString(),
                 passphrase: interpolatedPassword,
-                type: this.detectCertType(resolvedPath)
-            });
+                type: this.detectCertType(resolvedPath) as any
+            };
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'certificate',
-                cert: certificate.cert,
-                key: certificate.key,
-                ca: certificate.ca,
-                passphrase: interpolatedPassword
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'certificate');
+            currentContext.setVariable('certPath', resolvedPath);
+            currentContext.setVariable('certContent', certConfig.cert);
+            currentContext.setVariable('certPassphrase', interpolatedPassword);
+            currentContext.setVariable('certType', certConfig.type);
             
-            ActionLogger.logAPIAction('certificateLoaded', { 
+            await actionLogger.logAction('certificateLoaded', { 
                 certPath: resolvedPath,
-                type: certificate.type,
-                hasCA: !!certificate.ca
+                type: certConfig.type,
+                hasPassphrase: !!interpolatedPassword
             });
         } catch (error) {
-            ActionLogger.logError('Failed to load certificate', error);
-            throw new Error(`Failed to load certificate from '${certPath}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to load certificate' });
+            throw new Error(`Failed to load certificate from '${certPath}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -294,7 +289,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets certificate authentication:")
     async setCertificateAuth(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setCertificateAuth', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setCertificateAuth', {});
         
         try {
             const currentContext = this.getAPIContext();
@@ -317,34 +313,39 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             
             if (certConfig.certFile) {
                 const certPath = await this.resolveCertPath(certConfig.certFile);
-                authConfig.cert = await FileUtils.readFile(certPath);
+                authConfig.cert = (await FileUtils.readFile(certPath)).toString();
             }
             
             if (certConfig.keyFile) {
                 const keyPath = await this.resolveCertPath(certConfig.keyFile);
-                authConfig.key = await FileUtils.readFile(keyPath);
+                authConfig.key = (await FileUtils.readFile(keyPath)).toString();
             }
             
             if (certConfig.caFile) {
                 const caPath = await this.resolveCertPath(certConfig.caFile);
-                authConfig.ca = await FileUtils.readFile(caPath);
+                authConfig.ca = (await FileUtils.readFile(caPath)).toString();
             }
             
             if (certConfig.passphrase) {
                 authConfig.passphrase = certConfig.passphrase;
             }
             
-            currentContext.setAuthentication(authConfig);
+            // Store authentication config in variables
+            currentContext.setVariable('authType', authConfig.type);
+            if (authConfig.cert) currentContext.setVariable('certContent', authConfig.cert);
+            if (authConfig.key) currentContext.setVariable('certKey', authConfig.key);
+            if (authConfig.ca) currentContext.setVariable('certCA', authConfig.ca);
+            if (authConfig.passphrase) currentContext.setVariable('certPassphrase', authConfig.passphrase);
             
-            ActionLogger.logAPIAction('certificateAuthSet', { 
+            await actionLogger.logAction('certificateAuthSet', { 
                 hasCert: !!authConfig.cert,
                 hasKey: !!authConfig.key,
                 hasCA: !!authConfig.ca,
                 hasPassphrase: !!authConfig.passphrase
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set certificate authentication', error);
-            throw new Error(`Failed to set certificate authentication: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set certificate authentication' });
+            throw new Error(`Failed to set certificate authentication: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -354,7 +355,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets NTLM auth with username {string} and password {string}")
     async setNTLMAuth(username: string, password: string): Promise<void> {
-        ActionLogger.logAPIAction('setNTLMAuth', { username });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setNTLMAuth', { username });
         
         try {
             const currentContext = this.getAPIContext();
@@ -367,27 +369,25 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             
             if (interpolatedUsername.includes('\\')) {
                 const parts = interpolatedUsername.split('\\');
-                domain = parts[0];
-                user = parts[1];
+                domain = parts[0] || '';
+                user = parts[1] || interpolatedUsername;
             }
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'ntlm',
-                username: user,
-                password: interpolatedPassword,
-                domain: domain,
-                workstation: ConfigurationManager.get('NTLM_WORKSTATION', '')
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'ntlm');
+            currentContext.setVariable('ntlmUsername', user);
+            currentContext.setVariable('ntlmPassword', interpolatedPassword);
+            currentContext.setVariable('ntlmDomain', domain);
+            currentContext.setVariable('ntlmWorkstation', ConfigurationManager.get('NTLM_WORKSTATION', ''));
             
-            ActionLogger.logAPIAction('ntlmAuthSet', { 
+            await actionLogger.logAction('ntlmAuthSet', { 
                 username: user,
                 domain: domain,
                 hasWorkstation: !!ConfigurationManager.get('NTLM_WORKSTATION')
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set NTLM auth', error);
-            throw new Error(`Failed to set NTLM authentication: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set NTLM auth' });
+            throw new Error(`Failed to set NTLM authentication: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -397,30 +397,29 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets AWS auth with key {string} and secret {string}")
     async setAWSAuth(accessKey: string, secretKey: string): Promise<void> {
-        ActionLogger.logAPIAction('setAWSAuth', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setAWSAuth', {});
         
         try {
             const currentContext = this.getAPIContext();
             const interpolatedKey = await this.interpolateValue(accessKey);
             const interpolatedSecret = await this.interpolateValue(secretKey);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'aws',
-                accessKeyId: interpolatedKey,
-                secretAccessKey: interpolatedSecret,
-                region: ConfigurationManager.get('AWS_REGION', 'us-east-1'),
-                service: ConfigurationManager.get('AWS_SERVICE', 'execute-api')
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'aws');
+            currentContext.setVariable('awsAccessKeyId', interpolatedKey);
+            currentContext.setVariable('awsSecretAccessKey', interpolatedSecret);
+            currentContext.setVariable('awsRegion', ConfigurationManager.get('AWS_REGION', 'us-east-1'));
+            currentContext.setVariable('awsService', ConfigurationManager.get('AWS_SERVICE', 'execute-api'));
             
-            ActionLogger.logAPIAction('awsAuthSet', { 
+            await actionLogger.logAction('awsAuthSet', { 
                 keyLength: interpolatedKey.length,
                 region: ConfigurationManager.get('AWS_REGION', 'us-east-1'),
                 service: ConfigurationManager.get('AWS_SERVICE', 'execute-api')
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set AWS auth', error);
-            throw new Error(`Failed to set AWS authentication: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set AWS auth' });
+            throw new Error(`Failed to set AWS authentication: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -434,7 +433,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets AWS auth:")
     async setAWSAuthDetailed(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setAWSAuthDetailed', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setAWSAuthDetailed', {});
         
         try {
             const currentContext = this.getAPIContext();
@@ -457,24 +457,24 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
                 throw new Error('AWS authentication requires: accessKey and secretKey');
             }
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'aws',
-                accessKeyId: awsConfig.accessKey,
-                secretAccessKey: awsConfig.secretKey,
-                sessionToken: awsConfig.sessionToken,
-                region: awsConfig.region || 'us-east-1',
-                service: awsConfig.service || 'execute-api'
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'aws');
+            currentContext.setVariable('awsAccessKeyId', awsConfig.accessKey);
+            currentContext.setVariable('awsSecretAccessKey', awsConfig.secretKey);
+            if (awsConfig.sessionToken) {
+                currentContext.setVariable('awsSessionToken', awsConfig.sessionToken);
+            }
+            currentContext.setVariable('awsRegion', awsConfig.region || 'us-east-1');
+            currentContext.setVariable('awsService', awsConfig.service || 'execute-api');
             
-            ActionLogger.logAPIAction('awsAuthDetailedSet', { 
+            await actionLogger.logAction('awsAuthDetailedSet', { 
                 hasSessionToken: !!awsConfig.sessionToken,
                 region: awsConfig.region || 'us-east-1',
                 service: awsConfig.service || 'execute-api'
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set AWS auth', error);
-            throw new Error(`Failed to set AWS authentication: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set AWS auth' });
+            throw new Error(`Failed to set AWS authentication: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -484,7 +484,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears authentication")
     async clearAuthentication(): Promise<void> {
-        ActionLogger.logAPIAction('clearAuthentication', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearAuthentication', {});
         
         try {
             const currentContext = this.getAPIContext();
@@ -492,12 +493,12 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             // Remove Authorization header
             currentContext.removeHeader('Authorization');
             
-            // Clear authentication config
-            currentContext.setAuthentication(null);
+            // Clear authentication config by removing auth variables
+            currentContext.setVariable('authType', null);
             
-            ActionLogger.logAPIAction('authenticationCleared', {});
+            await actionLogger.logAction('authenticationCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear authentication', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to clear authentication' });
             throw error;
         }
     }
@@ -508,7 +509,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets custom auth header {string} to {string}")
     async setCustomAuthHeader(headerName: string, headerValue: string): Promise<void> {
-        ActionLogger.logAPIAction('setCustomAuthHeader', { headerName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setCustomAuthHeader', { headerName });
         
         try {
             const currentContext = this.getAPIContext();
@@ -516,21 +518,19 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             
             currentContext.setHeader(headerName, interpolatedValue);
             
-            // Store authentication config
-            currentContext.setAuthentication({
-                type: 'custom',
-                headerName: headerName,
-                headerValue: interpolatedValue
-            });
+            // Store authentication config in variables
+            currentContext.setVariable('authType', 'custom');
+            currentContext.setVariable('customAuthHeaderName', headerName);
+            currentContext.setVariable('customAuthHeaderValue', interpolatedValue);
             
-            ActionLogger.logAPIAction('customAuthHeaderSet', { 
+            await actionLogger.logAction('customAuthHeaderSet', { 
                 headerName,
                 valueLength: interpolatedValue.length,
                 valuePreview: this.maskToken(interpolatedValue)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set custom auth header', error);
-            throw new Error(`Failed to set custom auth header: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set custom auth header' });
+            throw new Error(`Failed to set custom auth header: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -538,7 +538,7 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      * Helper method to get current API context
      */
     private getAPIContext(): APIContext {
-        const context = this.context.get('currentAPIContext') as APIContext;
+        const context = this.retrieve('currentAPIContext') as APIContext;
         if (!context) {
             throw new Error('No API context set. Please use "Given user is working with <api> API" first');
         }
@@ -559,13 +559,14 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      * Helper method to resolve certificate paths
      */
     private async resolveCertPath(certPath: string): Promise<string> {
-        if (FileUtils.isAbsolutePath(certPath)) {
+        const path = await import('path');
+        if (path.isAbsolute(certPath)) {
             return certPath;
         }
         
         // Try certificates directory
         const certsPath = ConfigurationManager.get('CERTIFICATES_PATH', './certs');
-        const resolvedPath = FileUtils.joinPath(certsPath, certPath);
+        const resolvedPath = path.join(certsPath, certPath);
         
         if (await FileUtils.exists(resolvedPath)) {
             return resolvedPath;
@@ -573,7 +574,7 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
         
         // Try test data directory
         const testDataPath = ConfigurationManager.get('TEST_DATA_PATH', './test-data');
-        const testDataResolvedPath = FileUtils.joinPath(testDataPath, 'certs', certPath);
+        const testDataResolvedPath = path.join(testDataPath, 'certs', certPath);
         
         if (await FileUtils.exists(testDataResolvedPath)) {
             return testDataResolvedPath;
@@ -587,7 +588,8 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
      * Helper method to detect certificate type
      */
     private detectCertType(certPath: string): string {
-        const ext = FileUtils.getExtension(certPath).toLowerCase();
+        const path = (typeof window === 'undefined') ? require('path') : { extname: (p: string) => { const parts = p.split('.'); return parts.length > 1 ? '.' + parts[parts.length - 1] : ''; } };
+        const ext = path.extname(certPath).toLowerCase();
         
         switch (ext) {
             case '.p12':
@@ -613,12 +615,15 @@ export class AuthenticationSteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        const variables = this.context.getAllVariables();
+        // For now, just return the value as-is if no interpolation is needed
+        // In a real implementation, you'd get variables from the BDD context
         let interpolated = value;
         
-        for (const [key, val] of Object.entries(variables)) {
-            interpolated = interpolated.replace(new RegExp(`{{${key}}}`, 'g'), String(val));
-        }
+        // Simple placeholder replacement for common variables
+        interpolated = interpolated.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+            const varValue = this.retrieve(varName);
+            return varValue !== undefined ? String(varValue) : match;
+        });
         
         return interpolated;
     }

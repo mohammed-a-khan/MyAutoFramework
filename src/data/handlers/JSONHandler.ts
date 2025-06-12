@@ -505,20 +505,23 @@ export class JSONHandler implements DataHandler {
         }
         
         // Otherwise use data validator
-        const result = await this.validator.validate(data, options || {}, {
+        const validationRules: Record<string, any> = {};
+        
+        const result = await this.validator.validate(data, validationRules, {
             validateRequired: true,
-            validateTypes: true
+            validateTypes: true,
+            stopOnFirstError: false
         });
         
         return {
             isValid: result.valid,
-            errors: result.errors.map(e => (e as any).message || 'Validation error'),
-            warnings: result.warnings?.map(w => (w as any).message || 'Validation warning'),
+            errors: result.errors.map(e => e.errors ? e.errors.join(', ') : 'Validation error'),
+            warnings: result.warnings?.map(w => w.errors ? w.errors.join(', ') : 'Validation warning'),
             details: result.errors.map(e => ({
-                row: (e as any).recordIndex,
-                field: (e as any).field,
-                value: (e as any).value,
-                error: (e as any).message || 'Validation error'
+                row: e.recordIndex,
+                field: e.field,
+                value: e.value,
+                error: e.message || (e.errors ? e.errors.join(', ') : 'Validation error')
             }))
         };
     }

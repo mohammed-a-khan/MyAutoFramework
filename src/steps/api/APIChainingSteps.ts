@@ -8,7 +8,6 @@ import { ResponseStorage } from '../../bdd/context/ResponseStorage';
 import { JSONPathValidator } from '../../api/validators/JSONPathValidator';
 import { XMLValidator } from '../../api/validators/XMLValidator';
 import { ActionLogger } from '../../core/logging/ActionLogger';
-import { StringUtils } from '../../core/utils/StringUtils';
 
 /**
  * Step definitions for chaining API responses
@@ -16,16 +15,23 @@ import { StringUtils } from '../../core/utils/StringUtils';
  */
 export class APIChainingSteps extends CSBDDBaseStepDefinition {
     private responseStorage: ResponseStorage;
-    private chainContext: APIChainContext;
+    private chainContext: APIChainContext | null = null;
     private jsonPathValidator: JSONPathValidator;
     private xmlValidator: XMLValidator;
 
     constructor() {
         super();
-        this.responseStorage = new ResponseStorage();
-        this.chainContext = new APIChainContext();
-        this.jsonPathValidator = new JSONPathValidator();
-        this.xmlValidator = new XMLValidator();
+        this.responseStorage = ResponseStorage.getInstance();
+        this.jsonPathValidator = JSONPathValidator.getInstance();
+        this.xmlValidator = XMLValidator.getInstance();
+    }
+
+    private getChainContext(): APIChainContext {
+        if (!this.chainContext) {
+            const apiContext = this.getAPIContext();
+            this.chainContext = new APIChainContext(apiContext);
+        }
+        return this.chainContext;
     }
 
     /**
@@ -34,7 +40,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user uses response JSON path {string} from {string} as request body field {string}")
     async useJSONPathAsBodyField(jsonPath: string, responseAlias: string, fieldName: string): Promise<void> {
-        ActionLogger.logAPIAction('useJSONPathAsBodyField', { jsonPath, responseAlias, fieldName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('useJSONPathAsBodyField', { jsonPath, responseAlias, fieldName });
         
         try {
             // Get stored response
@@ -52,25 +59,29 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             const currentContext = this.getAPIContext();
             
             // Get or create request body
-            let body = currentContext.getBody();
+            let body = currentContext.getVariable('requestBody') || {};
             if (!body || typeof body !== 'object') {
                 body = {};
             }
             
             // Set field value
             this.setNestedProperty(body, fieldName, value);
-            currentContext.setBody(body);
+            currentContext.setVariable('requestBody', body);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                sourcePath: jsonPath,
-                targetType: 'body',
-                targetField: fieldName,
-                value: value
+            this.getChainContext().addStep({
+                name: `Use ${jsonPath} from ${responseAlias} as ${fieldName}`,
+                type: 'extraction',
+                config: {
+                    source: responseAlias,
+                    sourcePath: jsonPath,
+                    targetType: 'body',
+                    targetField: fieldName,
+                    value: value
+                }
             });
             
-            ActionLogger.logAPIAction('jsonPathUsedAsBodyField', { 
+            await actionLogger.logAction('jsonPathUsedAsBodyField', { 
                 jsonPath,
                 responseAlias,
                 fieldName,
@@ -78,8 +89,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
                 value: this.truncateValue(value)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to use JSON path as body field', error);
-            throw new Error(`Failed to use JSON path from '${responseAlias}': ${error.message}`);
+            await actionLogger.logError('Failed to use JSON path as body field', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to use JSON path from '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -89,7 +100,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user uses response header {string} from {string} as request header {string}")
     async useResponseHeaderAsRequestHeader(sourceHeader: string, responseAlias: string, targetHeader: string): Promise<void> {
-        ActionLogger.logAPIAction('useResponseHeaderAsRequestHeader', { sourceHeader, responseAlias, targetHeader });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('useResponseHeaderAsRequestHeader', { sourceHeader, responseAlias, targetHeader });
         
         try {
             // Get stored response
@@ -108,24 +120,28 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             currentContext.setHeader(targetHeader, headerValue);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                sourceType: 'header',
-                sourceHeader: sourceHeader,
-                targetType: 'header',
-                targetHeader: targetHeader,
-                value: headerValue
+            this.getChainContext().addStep({
+                name: `Use header ${sourceHeader} from ${responseAlias} as ${targetHeader}`,
+                type: 'extraction',
+                config: {
+                    source: responseAlias,
+                    sourceType: 'header',
+                    sourceHeader: sourceHeader,
+                    targetType: 'header',
+                    targetHeader: targetHeader,
+                    value: headerValue
+                }
             });
             
-            ActionLogger.logAPIAction('responseHeaderUsedAsRequestHeader', { 
+            await actionLogger.logAction('responseHeaderUsedAsRequestHeader', { 
                 sourceHeader,
                 responseAlias,
                 targetHeader,
                 value: headerValue
             });
         } catch (error) {
-            ActionLogger.logError('Failed to use response header', error);
-            throw new Error(`Failed to use response header from '${responseAlias}': ${error.message}`);
+            await actionLogger.logError('Failed to use response header', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to use response header from '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -135,13 +151,14 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user uses {string} in request URL {string}")
     async useVariableInURL(variableName: string, urlPath: string): Promise<void> {
-        ActionLogger.logAPIAction('useVariableInURL', { variableName, urlPath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('useVariableInURL', { variableName, urlPath });
         
         try {
             const currentContext = this.getAPIContext();
             
             // Get variable value
-            const variableValue = this.context.getVariable(variableName);
+            const variableValue = this.retrieve(variableName);
             if (variableValue === undefined) {
                 throw new Error(`Variable '${variableName}' not found`);
             }
@@ -149,27 +166,31 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             // Replace in URL
             const interpolatedPath = urlPath.replace(`{{${variableName}}}`, String(variableValue));
             
-            currentContext.setPath(interpolatedPath);
+            currentContext.setVariable('requestPath', interpolatedPath);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: 'variable',
-                sourceVariable: variableName,
-                targetType: 'url',
-                targetPath: urlPath,
-                value: variableValue,
-                interpolatedValue: interpolatedPath
+            this.getChainContext().addStep({
+                name: `Use variable ${variableName} in URL`,
+                type: 'transformation',
+                config: {
+                    source: 'variable',
+                    sourceVariable: variableName,
+                    targetType: 'url',
+                    targetPath: urlPath,
+                    value: variableValue,
+                    interpolatedValue: interpolatedPath
+                }
             });
             
-            ActionLogger.logAPIAction('variableUsedInURL', { 
+            await actionLogger.logAction('variableUsedInURL', { 
                 variableName,
                 originalPath: urlPath,
                 interpolatedPath,
                 value: String(variableValue)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to use variable in URL', error);
-            throw new Error(`Failed to use variable in URL: ${error.message}`);
+            await actionLogger.logError('Failed to use variable in URL', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to use variable in URL: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -179,7 +200,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user uses last response JSON path {string} as header {string} with prefix {string}")
     async useLastResponseJSONPathAsHeaderWithPrefix(jsonPath: string, headerName: string, prefix: string): Promise<void> {
-        ActionLogger.logAPIAction('useLastResponseJSONPathAsHeader', { jsonPath, headerName, prefix });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('useLastResponseJSONPathAsHeader', { jsonPath, headerName, prefix });
         
         try {
             const lastResponse = this.getLastResponse();
@@ -198,17 +220,21 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             currentContext.setHeader(headerName, headerValue);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: 'lastResponse',
-                sourcePath: jsonPath,
-                targetType: 'header',
-                targetHeader: headerName,
-                prefix: prefix,
-                value: value,
-                finalValue: headerValue
+            this.getChainContext().addStep({
+                name: `Use last response ${jsonPath} as header ${headerName}`,
+                type: 'extraction',
+                config: {
+                    source: 'lastResponse',
+                    sourcePath: jsonPath,
+                    targetType: 'header',
+                    targetHeader: headerName,
+                    prefix: prefix,
+                    value: value,
+                    finalValue: headerValue
+                }
             });
             
-            ActionLogger.logAPIAction('lastResponseJSONPathUsedAsHeader', { 
+            await actionLogger.logAction('lastResponseJSONPathUsedAsHeader', { 
                 jsonPath,
                 headerName,
                 prefix,
@@ -216,8 +242,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
                 finalValue: this.truncateValue(headerValue)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to use last response JSON path', error);
-            throw new Error(`Failed to use last response JSON path: ${error.message}`);
+            await actionLogger.logError('Failed to use last response JSON path', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to use last response JSON path: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -230,7 +256,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user chains from {string} to request body:")
     async chainMultipleValuesToBody(responseAlias: string, dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('chainMultipleValuesToBody', { responseAlias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('chainMultipleValuesToBody', { responseAlias });
         
         try {
             const storedResponse = this.getStoredResponse(responseAlias);
@@ -240,7 +267,7 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             const jsonBody = this.parseResponseAsJSON(storedResponse);
             
             // Get or create request body
-            let body = currentContext.getBody();
+            let body = currentContext.getVariable('requestBody') || {};
             if (!body || typeof body !== 'object') {
                 body = {};
             }
@@ -264,26 +291,30 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
                     chainedCount++;
                     
                     // Store in chain context
-                    this.chainContext.addChainStep({
-                        source: responseAlias,
-                        sourcePath: sourcePath,
-                        targetType: 'body',
-                        targetField: targetField,
-                        value: value
+                    this.getChainContext().addStep({
+                        name: `Chain ${sourcePath} to ${targetField}`,
+                        type: 'extraction',
+                        config: {
+                            source: responseAlias,
+                            sourcePath: sourcePath,
+                            targetType: 'body',
+                            targetField: targetField,
+                            value: value
+                        }
                     });
                 }
             }
             
-            currentContext.setBody(body);
+            currentContext.setVariable('requestBody', body);
             
-            ActionLogger.logAPIAction('multipleValuesChainedToBody', { 
+            await actionLogger.logAction('multipleValuesChainedToBody', { 
                 responseAlias,
                 chainedCount,
                 totalFields: rows.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to chain multiple values', error);
-            throw new Error(`Failed to chain values from '${responseAlias}': ${error.message}`);
+            await actionLogger.logError('Failed to chain multiple values', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to chain values from '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -293,7 +324,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user uses XML path {string} from {string} as query parameter {string}")
     async useXMLPathAsQueryParameter(xmlPath: string, responseAlias: string, paramName: string): Promise<void> {
-        ActionLogger.logAPIAction('useXMLPathAsQueryParameter', { xmlPath, responseAlias, paramName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('useXMLPathAsQueryParameter', { xmlPath, responseAlias, paramName });
         
         try {
             const storedResponse = this.getStoredResponse(responseAlias);
@@ -303,34 +335,40 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             const xmlBody = this.getResponseBodyAsString(storedResponse);
             
             // Extract value using XPath
-            const result = this.xmlValidator.extractXPathValue(xmlBody, xmlPath);
+            const result = this.xmlValidator.extractValue(xmlBody, xmlPath);
             
             if (!result || !result.value) {
                 throw new Error(`XML path '${xmlPath}' not found in response '${responseAlias}'`);
             }
             
             // Set query parameter
-            currentContext.setQueryParameter(paramName, String(result.value));
+            const queryParams = currentContext.getVariable('queryParams') || {};
+            queryParams[paramName] = String(result.value);
+            currentContext.setVariable('queryParams', queryParams);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                sourcePath: xmlPath,
-                sourceType: 'xml',
-                targetType: 'query',
-                targetParameter: paramName,
-                value: result.value
+            this.getChainContext().addStep({
+                name: `Use XML path ${xmlPath} as query param ${paramName}`,
+                type: 'extraction',
+                config: {
+                    source: responseAlias,
+                    sourcePath: xmlPath,
+                    sourceType: 'xml',
+                    targetType: 'query',
+                    targetParameter: paramName,
+                    value: result.value
+                }
             });
             
-            ActionLogger.logAPIAction('xmlPathUsedAsQueryParameter', { 
+            await actionLogger.logAction('xmlPathUsedAsQueryParameter', { 
                 xmlPath,
                 responseAlias,
                 paramName,
                 value: String(result.value)
             });
         } catch (error) {
-            ActionLogger.logError('Failed to use XML path', error);
-            throw new Error(`Failed to use XML path from '${responseAlias}': ${error.message}`);
+            await actionLogger.logError('Failed to use XML path', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to use XML path from '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -349,7 +387,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user creates request body from {string} with transformation:")
     async createBodyFromResponseWithTransformation(responseAlias: string, template: string): Promise<void> {
-        ActionLogger.logAPIAction('createBodyFromResponseTransformation', { responseAlias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('createBodyFromResponseTransformation', { responseAlias });
         
         try {
             const storedResponse = this.getStoredResponse(responseAlias);
@@ -366,10 +405,11 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             // Find all placeholders and extract values
             let match;
             while ((match = placeholderRegex.exec(template)) !== null) {
-                const jsonPath = match[1];
+                const jsonPath = match[1] || '';
+                if (!jsonPath) continue;
                 const value = this.jsonPathValidator.extractValue(jsonBody, jsonPath);
                 
-                if (value !== undefined) {
+                if (value !== undefined && match[0]) {
                     replacements.push({ path: jsonPath, value });
                     transformedBody = transformedBody.replace(match[0], JSON.stringify(value));
                 }
@@ -380,29 +420,34 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             try {
                 finalBody = JSON.parse(transformedBody);
             } catch (error) {
-                throw new Error(`Invalid JSON after transformation: ${error.message}`);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                throw new Error(`Invalid JSON after transformation: ${errorMessage}`);
             }
             
-            currentContext.setBody(finalBody);
+            currentContext.setVariable('requestBody', finalBody);
             
             // Store transformation in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                sourceType: 'transformation',
-                template: template,
-                replacements: replacements,
-                targetType: 'body',
-                value: finalBody
+            this.getChainContext().addStep({
+                name: `Transform body from ${responseAlias}`,
+                type: 'transformation',
+                config: {
+                    source: responseAlias,
+                    sourceType: 'transformation',
+                    template: template,
+                    replacements: replacements,
+                    targetType: 'body',
+                    value: finalBody
+                }
             });
             
-            ActionLogger.logAPIAction('bodyCreatedFromResponseTransformation', { 
+            await actionLogger.logAction('bodyCreatedFromResponseTransformation', { 
                 responseAlias,
                 replacementCount: replacements.length,
                 bodySize: JSON.stringify(finalBody).length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to create body from response transformation', error);
-            throw new Error(`Failed to create body from response '${responseAlias}': ${error.message}`);
+            await actionLogger.logError('Failed to create body from response transformation', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to create body from response '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -412,7 +457,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user appends JSON path {string} from {string} to request body array {string}")
     async appendToBodyArray(jsonPath: string, responseAlias: string, arrayField: string): Promise<void> {
-        ActionLogger.logAPIAction('appendToBodyArray', { jsonPath, responseAlias, arrayField });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('appendToBodyArray', { jsonPath, responseAlias, arrayField });
         
         try {
             const storedResponse = this.getStoredResponse(responseAlias);
@@ -427,7 +473,7 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             }
             
             // Get or create request body
-            let body = currentContext.getBody();
+            let body = currentContext.getVariable('requestBody') || {};
             if (!body || typeof body !== 'object') {
                 body = {};
             }
@@ -441,20 +487,24 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             // Append value
             array.push(value);
             this.setNestedProperty(body, arrayField, array);
-            currentContext.setBody(body);
+            currentContext.setVariable('requestBody', body);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                sourcePath: jsonPath,
-                targetType: 'body',
-                targetField: arrayField,
-                operation: 'append',
-                value: value,
-                arrayLength: array.length
+            this.getChainContext().addStep({
+                name: `Append ${jsonPath} to ${arrayField}`,
+                type: 'transformation',
+                config: {
+                    source: responseAlias,
+                    sourcePath: jsonPath,
+                    targetType: 'body',
+                    targetField: arrayField,
+                    operation: 'append',
+                    value: value,
+                    arrayLength: array.length
+                }
             });
             
-            ActionLogger.logAPIAction('valueAppendedToBodyArray', { 
+            await actionLogger.logAction('valueAppendedToBodyArray', { 
                 jsonPath,
                 responseAlias,
                 arrayField,
@@ -462,8 +512,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
                 newArrayLength: array.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to append to body array', error);
-            throw new Error(`Failed to append to body array: ${error.message}`);
+            await actionLogger.logError('Failed to append to body array', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to append to body array: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -473,7 +523,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user merges response from {string} into request body")
     async mergeResponseIntoBody(responseAlias: string): Promise<void> {
-        ActionLogger.logAPIAction('mergeResponseIntoBody', { responseAlias });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('mergeResponseIntoBody', { responseAlias });
         
         try {
             const storedResponse = this.getStoredResponse(responseAlias);
@@ -483,33 +534,37 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             const responseData = this.parseResponseAsJSON(storedResponse);
             
             // Get current body
-            let body = currentContext.getBody();
+            let body = currentContext.getVariable('requestBody') || {};
             if (!body || typeof body !== 'object') {
                 body = {};
             }
             
             // Merge response data into body
             const mergedBody = this.deepMerge(body, responseData);
-            currentContext.setBody(mergedBody);
+            currentContext.setVariable('requestBody', mergedBody);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                targetType: 'body',
-                operation: 'merge',
-                value: responseData,
-                mergedResult: mergedBody
+            this.getChainContext().addStep({
+                name: `Merge ${responseAlias} into body`,
+                type: 'transformation',
+                config: {
+                    source: responseAlias,
+                    targetType: 'body',
+                    operation: 'merge',
+                    value: responseData,
+                    mergedResult: mergedBody
+                }
             });
             
-            ActionLogger.logAPIAction('responseeMergedIntoBody', { 
+            await actionLogger.logAction('responseeMergedIntoBody', { 
                 responseAlias,
                 originalKeys: Object.keys(body).length,
                 responseKeys: Object.keys(responseData).length,
                 mergedKeys: Object.keys(mergedBody).length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to merge response into body', error);
-            throw new Error(`Failed to merge response '${responseAlias}' into body: ${error.message}`);
+            await actionLogger.logError('Failed to merge response into body', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to merge response '${responseAlias}' into body: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -519,7 +574,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user uses status code from {string} as query parameter {string}")
     async useStatusCodeAsQueryParameter(responseAlias: string, paramName: string): Promise<void> {
-        ActionLogger.logAPIAction('useStatusCodeAsQueryParameter', { responseAlias, paramName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('useStatusCodeAsQueryParameter', { responseAlias, paramName });
         
         try {
             const storedResponse = this.getStoredResponse(responseAlias);
@@ -531,25 +587,31 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             }
             
             // Set query parameter
-            currentContext.setQueryParameter(paramName, String(statusCode));
+            const queryParams = currentContext.getVariable('queryParams') || {};
+            queryParams[paramName] = String(statusCode);
+            currentContext.setVariable('queryParams', queryParams);
             
             // Store in chain context
-            this.chainContext.addChainStep({
-                source: responseAlias,
-                sourceType: 'statusCode',
-                targetType: 'query',
-                targetParameter: paramName,
-                value: statusCode
+            this.getChainContext().addStep({
+                name: `Use status code from ${responseAlias} as ${paramName}`,
+                type: 'extraction',
+                config: {
+                    source: responseAlias,
+                    sourceType: 'statusCode',
+                    targetType: 'query',
+                    targetParameter: paramName,
+                    value: statusCode
+                }
             });
             
-            ActionLogger.logAPIAction('statusCodeUsedAsQueryParameter', { 
+            await actionLogger.logAction('statusCodeUsedAsQueryParameter', { 
                 responseAlias,
                 paramName,
                 statusCode
             });
         } catch (error) {
-            ActionLogger.logError('Failed to use status code', error);
-            throw new Error(`Failed to use status code from '${responseAlias}': ${error.message}`);
+            await actionLogger.logError('Failed to use status code', error instanceof Error ? error : new Error(String(error)));
+            throw new Error(`Failed to use status code from '${responseAlias}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -559,14 +621,15 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears chain context")
     async clearChainContext(): Promise<void> {
-        ActionLogger.logAPIAction('clearChainContext', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearChainContext', {});
         
         try {
-            this.chainContext.clear();
+            this.getChainContext().clear();
             
-            ActionLogger.logAPIAction('chainContextCleared', {});
+            await actionLogger.logAction('chainContextCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear chain context', error);
+            await actionLogger.logError('Failed to clear chain context', error instanceof Error ? error : new Error(String(error)));
             throw error;
         }
     }
@@ -577,16 +640,18 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user prints chain history")
     async printChainHistory(): Promise<void> {
-        ActionLogger.logAPIAction('printChainHistory', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('printChainHistory', {});
         
         try {
-            const history = this.chainContext.getChainHistory();
+            const chainExport = this.getChainContext().export();
+            const history = chainExport.steps || [];
             
             console.log('\n========== API CHAIN HISTORY ==========');
             if (history.length === 0) {
                 console.log('No chain operations performed');
             } else {
-                history.forEach((step, index) => {
+                history.forEach((step: any, index: number) => {
                     console.log(`\nStep ${index + 1}:`);
                     console.log(`  Source: ${step.source}`);
                     if (step.sourcePath) console.log(`  Source Path: ${step.sourcePath}`);
@@ -601,11 +666,11 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
             }
             console.log('=====================================\n');
             
-            ActionLogger.logAPIAction('chainHistoryPrinted', { 
+            await actionLogger.logAction('chainHistoryPrinted', { 
                 stepCount: history.length
             });
         } catch (error) {
-            ActionLogger.logError('Failed to print chain history', error);
+            await actionLogger.logError('Failed to print chain history', error instanceof Error ? error : new Error(String(error)));
             throw error;
         }
     }
@@ -615,12 +680,12 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      */
     private getStoredResponse(alias: string): any {
         // Try response storage first
-        const scenarioId = this.context.getScenarioId();
+        const scenarioId = this.scenarioContext.getScenarioId();
         let response = this.responseStorage.retrieve(alias, scenarioId);
         
         // Try context storage
         if (!response) {
-            response = this.context.get(`response_${alias}`);
+            response = this.retrieve(`response_${alias}`);
         }
         
         if (!response) {
@@ -634,7 +699,7 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      * Helper method to get last response
      */
     private getLastResponse(): any {
-        const response = this.context.get('lastAPIResponse');
+        const response = this.retrieve('lastAPIResponse');
         if (!response) {
             throw new Error('No API response found. Please execute a request first');
         }
@@ -645,7 +710,7 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
      * Helper method to get current API context
      */
     private getAPIContext(): APIContext {
-        const context = this.context.get('currentAPIContext') as APIContext;
+        const context = this.retrieve('currentAPIContext') as APIContext;
         if (!context) {
             throw new Error('No API context set. Please use "Given user is working with <api> API" first');
         }
@@ -661,7 +726,8 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
         try {
             return JSON.parse(bodyText);
         } catch (error) {
-            throw new Error(`Failed to parse response as JSON: ${error.message}. Body: ${bodyText.substring(0, 200)}...`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to parse response as JSON: ${errorMessage}. Body: ${bodyText.substring(0, 200)}...`);
         }
     }
 
@@ -710,13 +776,17 @@ export class APIChainingSteps extends CSBDDBaseStepDefinition {
         
         for (let i = 0; i < keys.length - 1; i++) {
             const key = keys[i];
+            if (key === undefined) continue;
             if (!current[key] || typeof current[key] !== 'object') {
                 current[key] = {};
             }
             current = current[key];
         }
         
-        current[keys[keys.length - 1]] = value;
+        const lastKey = keys[keys.length - 1];
+        if (lastKey !== undefined) {
+            current[lastKey] = value;
+        }
     }
 
     /**

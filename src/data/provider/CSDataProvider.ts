@@ -1,5 +1,4 @@
 // src/data/provider/CSDataProvider.ts
-
 import { DataProviderOptions, TestData, DataSource, DataProviderResult, DataProviderConfig, ExecutionFlag } from '../types/data.types';
 import { DataProviderFactory } from './DataProviderFactory';
 import { DataCache } from './DataCache';
@@ -362,7 +361,7 @@ export class CSDataProvider {
         const columnName = options.executionFlagColumn || this.config.executionFlagColumn;
         
         return this.flagValidator.filterByExecutionFlag(data, 'execute', {
-            columnName,
+            flagColumn: columnName,
             environment: ConfigurationManager.getEnvironmentName(),
             defaultFlag: this.config.defaultExecutionFlag
         });
@@ -373,15 +372,50 @@ export class CSDataProvider {
      */
     private async validateData(data: TestData[], options: DataProviderOptions): Promise<void> {
         // Basic validation
-        const validationResult = await this.validator.validate(data, {
-            allowEmpty: false,
-            requiredFields: options.requiredFields,
-            uniqueFields: options.uniqueFields,
-            customValidations: options.validations
-        });
+        const validationRules: Record<string, any> = {};
+        
+        // Build validation rules from options
+        if (options.requiredFields) {
+            for (const field of options.requiredFields) {
+                validationRules[field] = { type: 'required', field };
+            }
+        }
+        
+        if (options.uniqueFields) {
+            for (const field of options.uniqueFields) {
+                validationRules[field] = { type: 'unique', field };
+            }
+        }
+        
+        if (options.validations) {
+            for (const validation of options.validations) {
+                if (!validationRules[validation.field]) {
+                    validationRules[validation.field] = [];
+                } else if (!Array.isArray(validationRules[validation.field])) {
+                    validationRules[validation.field] = [validationRules[validation.field]];
+                }
+                
+                if (Array.isArray(validationRules[validation.field])) {
+                    validationRules[validation.field].push({
+                        type: validation.type,
+                        field: validation.field,
+                        min: validation.min,
+                        max: validation.max,
+                        pattern: validation.pattern,
+                        message: validation.message,
+                        validator: validation.validator
+                    });
+                }
+            }
+        }
+        
+        const validationResult = await this.validator.validate(data, validationRules);
         
         if (!validationResult.valid) {
-            throw new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
+            const errorMessages = validationResult.errors.map(e => 
+                e.errors ? e.errors.join(', ') : 'Unknown validation error'
+            );
+            throw new Error(`Data validation failed: ${errorMessages.join(', ')}`);
         }
         
         // Schema validation if specified
@@ -389,8 +423,8 @@ export class CSDataProvider {
             const schema = await this.loadSchema(options.schemaPath);
             const schemaResult = await this.schemaValidator.validate(data, schema);
             
-            if (!schemaResult.isValid) {
-                throw new Error(`Schema validation failed: ${schemaResult.errors.join(', ')}`);
+            if (!schemaResult.valid) {
+                throw new Error(`Schema validation failed: ${schemaResult.errors.map(e => e.message).join(', ')}`);
             }
         }
     }

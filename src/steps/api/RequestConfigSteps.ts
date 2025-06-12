@@ -3,7 +3,6 @@
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { APIContext } from '../../api/context/APIContext';
-import { RequestBuilder } from '../../api/client/RequestBuilder';
 import { RequestTemplateEngine } from '../../api/templates/RequestTemplateEngine';
 import { FileUtils } from '../../core/utils/FileUtils';
 import { ActionLogger } from '../../core/logging/ActionLogger';
@@ -19,7 +18,7 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
 
     constructor() {
         super();
-        this.templateEngine = new RequestTemplateEngine();
+        this.templateEngine = RequestTemplateEngine.getInstance();
     }
 
     /**
@@ -28,7 +27,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user loads request from {string} file")
     async loadRequestFromFile(filePath: string): Promise<void> {
-        ActionLogger.logAPIAction('loadRequestFile', { filePath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('loadRequestFile', { filePath });
         
         try {
             const currentContext = this.getAPIContext();
@@ -45,10 +45,11 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             const fileContent = await FileUtils.readFile(resolvedPath);
             
             // Determine file type and parse
-            const requestConfig = await this.parseRequestFile(resolvedPath, fileContent);
+            const requestConfig = await this.parseRequestFile(resolvedPath, fileContent.toString());
             
             // Process template if needed
-            const variables = this.context.getAllVariables();
+            const variables: Record<string, any> = {};
+            // Get stored variables from the BDD context
             const processedConfig = await this.templateEngine.processTemplate(
                 JSON.stringify(requestConfig),
                 variables
@@ -59,14 +60,14 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             // Apply configuration to context
             this.applyRequestConfig(currentContext, finalConfig);
             
-            ActionLogger.logAPIAction('requestFileLoaded', { 
+            await actionLogger.logAction('requestFileLoaded', { 
                 filePath: resolvedPath,
                 method: finalConfig.method,
                 url: finalConfig.url
             });
         } catch (error) {
-            ActionLogger.logError('Failed to load request file', error);
-            throw new Error(`Failed to load request from file '${filePath}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to load request file' });
+            throw new Error(`Failed to load request from file '${filePath}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -76,7 +77,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request method to {string}")
     async setRequestMethod(method: string): Promise<void> {
-        ActionLogger.logAPIAction('setRequestMethod', { method });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestMethod', { method });
         
         try {
             const currentContext = this.getAPIContext();
@@ -88,11 +90,12 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Invalid HTTP method: ${method}. Valid methods are: ${validMethods.join(', ')}`);
             }
             
-            currentContext.setMethod(upperMethod);
+            // Store method in context variables
+            currentContext.setVariable('method', upperMethod);
             
-            ActionLogger.logAPIAction('requestMethodSet', { method: upperMethod });
+            await actionLogger.logAction('requestMethodSet', { method: upperMethod });
         } catch (error) {
-            ActionLogger.logError('Failed to set request method', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request method' });
             throw error;
         }
     }
@@ -103,7 +106,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request path to {string}")
     async setRequestPath(path: string): Promise<void> {
-        ActionLogger.logAPIAction('setRequestPath', { path });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestPath', { path });
         
         try {
             const currentContext = this.getAPIContext();
@@ -111,15 +115,16 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             // Interpolate variables
             const interpolatedPath = await this.interpolateValue(path);
             
-            currentContext.setPath(interpolatedPath);
+            // Store path in context variables
+            currentContext.setVariable('path', interpolatedPath);
             
-            ActionLogger.logAPIAction('requestPathSet', { 
+            await actionLogger.logAction('requestPathSet', { 
                 originalPath: path,
                 interpolatedPath: interpolatedPath
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set request path', error);
-            throw new Error(`Failed to set request path: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request path' });
+            throw new Error(`Failed to set request path: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -129,7 +134,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request timeout to {int} seconds")
     async setRequestTimeout(timeoutSeconds: number): Promise<void> {
-        ActionLogger.logAPIAction('setRequestTimeout', { timeoutSeconds });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestTimeout', { timeoutSeconds });
         
         try {
             if (timeoutSeconds <= 0) {
@@ -139,15 +145,16 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             const currentContext = this.getAPIContext();
             const timeoutMs = timeoutSeconds * 1000;
             
-            currentContext.setRequestOption('timeout', timeoutMs);
+            // Store timeout in context variables
+            currentContext.setVariable('requestTimeout', timeoutMs);
             
-            ActionLogger.logAPIAction('requestTimeoutSet', { 
+            await actionLogger.logAction('requestTimeoutSet', { 
                 seconds: timeoutSeconds,
                 milliseconds: timeoutMs
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set request timeout', error);
-            throw new Error(`Failed to set request timeout: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request timeout' });
+            throw new Error(`Failed to set request timeout: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -157,15 +164,16 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user disables redirect following for request")
     async disableRequestRedirects(): Promise<void> {
-        ActionLogger.logAPIAction('disableRequestRedirects', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('disableRequestRedirects', {});
         
         try {
             const currentContext = this.getAPIContext();
-            currentContext.setRequestOption('followRedirects', false);
+            currentContext.setVariable('followRedirects', false);
             
-            ActionLogger.logAPIAction('requestRedirectsDisabled', {});
+            await actionLogger.logAction('requestRedirectsDisabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to disable request redirects', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to disable request redirects' });
             throw error;
         }
     }
@@ -178,7 +186,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets query parameters:")
     async setQueryParameters(dataTable: any): Promise<void> {
-        ActionLogger.logAPIAction('setQueryParameters', { parameters: dataTable });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setQueryParameters', { parameters: dataTable });
         
         try {
             const currentContext = this.getAPIContext();
@@ -200,12 +209,14 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
                 params[key] = interpolatedValue;
             }
             
-            currentContext.setQueryParameters(params);
+            // Store query parameters in context variables
+            const existingParams = currentContext.getVariable('queryParams') || {};
+            currentContext.setVariable('queryParams', { ...existingParams, ...params });
             
-            ActionLogger.logAPIAction('queryParametersSet', { parameters: params });
+            await actionLogger.logAction('queryParametersSet', { parameters: params });
         } catch (error) {
-            ActionLogger.logError('Failed to set query parameters', error);
-            throw new Error(`Failed to set query parameters: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set query parameters' });
+            throw new Error(`Failed to set query parameters: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -215,7 +226,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets query parameter {string} to {string}")
     async setQueryParameter(key: string, value: string): Promise<void> {
-        ActionLogger.logAPIAction('setQueryParameter', { key, value });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setQueryParameter', { key, value });
         
         try {
             const currentContext = this.getAPIContext();
@@ -223,16 +235,19 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             // Interpolate value
             const interpolatedValue = await this.interpolateValue(value);
             
-            currentContext.setQueryParameter(key, interpolatedValue);
+            // Store query parameter in context variables
+            const existingParams = currentContext.getVariable('queryParams') || {};
+            existingParams[key] = interpolatedValue;
+            currentContext.setVariable('queryParams', existingParams);
             
-            ActionLogger.logAPIAction('queryParameterSet', { 
+            await actionLogger.logAction('queryParameterSet', { 
                 key,
                 originalValue: value,
                 interpolatedValue: interpolatedValue
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set query parameter', error);
-            throw new Error(`Failed to set query parameter '${key}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set query parameter' });
+            throw new Error(`Failed to set query parameter '${key}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -242,16 +257,20 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user removes query parameter {string}")
     async removeQueryParameter(key: string): Promise<void> {
-        ActionLogger.logAPIAction('removeQueryParameter', { key });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('removeQueryParameter', { key });
         
         try {
             const currentContext = this.getAPIContext();
-            currentContext.removeQueryParameter(key);
+            // Remove query parameter from context variables
+            const existingParams = currentContext.getVariable('queryParams') || {};
+            delete existingParams[key];
+            currentContext.setVariable('queryParams', existingParams);
             
-            ActionLogger.logAPIAction('queryParameterRemoved', { key });
+            await actionLogger.logAction('queryParameterRemoved', { key });
         } catch (error) {
-            ActionLogger.logError('Failed to remove query parameter', error);
-            throw new Error(`Failed to remove query parameter '${key}': ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to remove query parameter' });
+            throw new Error(`Failed to remove query parameter '${key}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -261,15 +280,17 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user clears all query parameters")
     async clearQueryParameters(): Promise<void> {
-        ActionLogger.logAPIAction('clearQueryParameters', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clearQueryParameters', {});
         
         try {
             const currentContext = this.getAPIContext();
-            currentContext.clearQueryParameters();
+            // Clear all query parameters from context variables
+            currentContext.setVariable('queryParams', {});
             
-            ActionLogger.logAPIAction('queryParametersCleared', {});
+            await actionLogger.logAction('queryParametersCleared', {});
         } catch (error) {
-            ActionLogger.logError('Failed to clear query parameters', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to clear query parameters' });
             throw error;
         }
     }
@@ -280,15 +301,16 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user enables HTTP/2 for request")
     async enableHTTP2(): Promise<void> {
-        ActionLogger.logAPIAction('enableHTTP2', {});
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('enableHTTP2', {});
         
         try {
             const currentContext = this.getAPIContext();
-            currentContext.setRequestOption('http2', true);
+            currentContext.setVariable('http2', true);
             
-            ActionLogger.logAPIAction('http2Enabled', {});
+            await actionLogger.logAction('http2Enabled', {});
         } catch (error) {
-            ActionLogger.logError('Failed to enable HTTP/2', error);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to enable HTTP/2' });
             throw error;
         }
     }
@@ -299,7 +321,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets request encoding to {string}")
     async setRequestEncoding(encoding: string): Promise<void> {
-        ActionLogger.logAPIAction('setRequestEncoding', { encoding });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setRequestEncoding', { encoding });
         
         try {
             const currentContext = this.getAPIContext();
@@ -309,13 +332,13 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Invalid encoding: ${encoding}. Valid encodings are: ${validEncodings.join(', ')}`);
             }
             
-            currentContext.setRequestOption('encoding', encoding.toLowerCase());
+            currentContext.setVariable('encoding', encoding.toLowerCase());
             currentContext.setHeader('Accept-Encoding', encoding.toLowerCase());
             
-            ActionLogger.logAPIAction('requestEncodingSet', { encoding: encoding.toLowerCase() });
+            await actionLogger.logAction('requestEncodingSet', { encoding: encoding.toLowerCase() });
         } catch (error) {
-            ActionLogger.logError('Failed to set request encoding', error);
-            throw new Error(`Failed to set request encoding: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set request encoding' });
+            throw new Error(`Failed to set request encoding: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -325,7 +348,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      */
     @CSBDDStepDef("user sets maximum response size to {int} MB")
     async setMaxResponseSize(sizeMB: number): Promise<void> {
-        ActionLogger.logAPIAction('setMaxResponseSize', { sizeMB });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setMaxResponseSize', { sizeMB });
         
         try {
             if (sizeMB <= 0) {
@@ -335,15 +359,15 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             const currentContext = this.getAPIContext();
             const sizeBytes = sizeMB * 1024 * 1024;
             
-            currentContext.setRequestOption('maxResponseSize', sizeBytes);
+            currentContext.setVariable('maxResponseSize', sizeBytes);
             
-            ActionLogger.logAPIAction('maxResponseSizeSet', { 
+            await actionLogger.logAction('maxResponseSizeSet', { 
                 megabytes: sizeMB,
                 bytes: sizeBytes
             });
         } catch (error) {
-            ActionLogger.logError('Failed to set max response size', error);
-            throw new Error(`Failed to set maximum response size: ${error.message}`);
+            await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { context: 'Failed to set max response size' });
+            throw new Error(`Failed to set maximum response size: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -351,7 +375,7 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      * Helper method to get current API context
      */
     private getAPIContext(): APIContext {
-        const context = this.context.get('currentAPIContext') as APIContext;
+        const context = this.retrieve('currentAPIContext') as APIContext;
         if (!context) {
             throw new Error('No API context set. Please use "Given user is working with <api> API" first');
         }
@@ -362,14 +386,16 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      * Helper method to resolve file paths
      */
     private async resolveFilePath(filePath: string): Promise<string> {
+        const path = await import('path');
+        
         // Check if absolute path
-        if (FileUtils.isAbsolutePath(filePath)) {
+        if (path.isAbsolute(filePath)) {
             return filePath;
         }
         
         // Try relative to test data directory
         const testDataPath = ConfigurationManager.get('TEST_DATA_PATH', './test-data');
-        const resolvedPath = FileUtils.joinPath(testDataPath, 'api', filePath);
+        const resolvedPath = path.join(testDataPath, 'api', filePath);
         
         if (await FileUtils.exists(resolvedPath)) {
             return resolvedPath;
@@ -383,7 +409,8 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
      * Helper method to parse request files
      */
     private async parseRequestFile(filePath: string, content: string): Promise<any> {
-        const extension = FileUtils.getExtension(filePath).toLowerCase();
+        const path = await import('path');
+        const extension = path.extname(filePath).toLowerCase();
         
         switch (extension) {
             case '.json':
@@ -410,27 +437,31 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
     private applyRequestConfig(context: APIContext, config: any): void {
         // Set method
         if (config.method) {
-            context.setMethod(config.method.toUpperCase());
+            context.setVariable('method', config.method.toUpperCase());
         }
         
         // Set URL/path
         if (config.url) {
-            if (ValidationUtils.isValidURL(config.url)) {
+            if (ValidationUtils.isValidUrl(config.url)) {
                 // Full URL provided
                 const url = new URL(config.url);
                 context.setBaseUrl(`${url.protocol}//${url.host}`);
-                context.setPath(url.pathname);
+                context.setVariable('path', url.pathname);
                 
                 // Extract query parameters
+                const queryParams: Record<string, string> = {};
                 url.searchParams.forEach((value, key) => {
-                    context.setQueryParameter(key, value);
+                    queryParams[key] = value;
                 });
+                if (Object.keys(queryParams).length > 0) {
+                    context.setVariable('queryParams', queryParams);
+                }
             } else {
                 // Just a path
-                context.setPath(config.url);
+                context.setVariable('path', config.url);
             }
         } else if (config.path) {
-            context.setPath(config.path);
+            context.setVariable('path', config.path);
         }
         
         // Set headers
@@ -443,27 +474,35 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
         // Set query parameters
         if (config.queryParameters || config.params) {
             const params = config.queryParameters || config.params;
+            const queryParams: Record<string, string> = {};
             Object.entries(params).forEach(([key, value]) => {
-                context.setQueryParameter(key, String(value));
+                queryParams[key] = String(value);
             });
+            context.setVariable('queryParams', queryParams);
         }
         
         // Set body
         if (config.body) {
-            context.setBody(config.body);
+            context.setVariable('body', config.body);
         }
         
         // Set options
         if (config.options) {
             Object.entries(config.options).forEach(([key, value]) => {
-                context.setRequestOption(key, value);
+                context.setVariable(key, value);
             });
         }
         
         // Set authentication
         if (config.auth || config.authentication) {
             const auth = config.auth || config.authentication;
-            context.setAuthentication(auth);
+            // Store authentication config in variables
+            if (auth.type) context.setVariable('authType', auth.type);
+            Object.entries(auth).forEach(([key, value]) => {
+                if (key !== 'type') {
+                    context.setVariable(`auth_${key}`, value);
+                }
+            });
         }
     }
 
@@ -475,12 +514,12 @@ export class RequestConfigSteps extends CSBDDBaseStepDefinition {
             return value;
         }
         
-        const variables = this.context.getAllVariables();
+        // Simple placeholder replacement for common variables
         let interpolated = value;
-        
-        for (const [key, val] of Object.entries(variables)) {
-            interpolated = interpolated.replace(new RegExp(`{{${key}}}`, 'g'), String(val));
-        }
+        interpolated = interpolated.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+            const varValue = this.retrieve(varName);
+            return varValue !== undefined ? String(varValue) : match;
+        });
         
         return interpolated;
     }

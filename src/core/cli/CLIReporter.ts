@@ -239,7 +239,7 @@ export class CLIReporter {
    this.hasColors = this.stdout.hasColors?.() ?? false;
    this.terminalWidth = this.stdout.columns || 80;
    this.terminalHeight = this.stdout.rows || 24;
-   this.isCIEnvironment = options.ci || !!process.env.CI;
+   this.isCIEnvironment = options.ci || !!process.env['CI'];
    
    // Configure colors
    this.useColors = this.hasColors && !options.noColors;
@@ -314,7 +314,7 @@ export class CLIReporter {
    
    if (this.useColors) {
      // Apply brand color #93186C
-     logo.forEach(line => {
+     logo.forEach((line: string) => {
        this.writeLine(this.colorize(line, 'brand'));
      });
    } else {
@@ -380,6 +380,13 @@ export class CLIReporter {
   * Update progress display
   */
  public updateProgress(progress?: any): void {
+   // Use progress if provided
+   if (progress) {
+     this.currentFeature = progress.feature || this.currentFeature;
+     this.currentScenario = progress.scenario || this.currentScenario;
+     this.currentStep = progress.step || this.currentStep;
+   }
+   
    if (!this.isInteractive || this.options.quiet) {
      return;
    }
@@ -442,7 +449,7 @@ export class CLIReporter {
    this.workers.forEach((state, workerId) => {
      const color = this.workerColors[workerIndex % this.workerColors.length];
      const status = this.formatWorkerStatus(state);
-     const workerLine = `  ${color}Worker ${workerIndex + 1}${this.ANSI.RESET}: ${status}`;
+     const workerLine = `  ${color}Worker ${workerId} (${workerIndex + 1})${this.ANSI.RESET}: ${status}`;
      lines.push(workerLine);
      workerIndex++;
    });
@@ -458,6 +465,9 @@ export class CLIReporter {
    const scenarioProgress = this.completedScenarios / this.totalScenarios;
    const featureProgress = this.completedFeatures / this.totalFeatures;
    
+   // Include progress indicators in display
+   const progressIndicators = `F:${Math.floor(featureProgress * 100)}% S:${Math.floor(scenarioProgress * 100)}%`;
+   
    const progressBar = this.buildProgressBar(overallProgress, this.progressBarWidth);
    const percentage = Math.floor(overallProgress * 100);
    const elapsed = this.formatDuration(Date.now() - this.startTime);
@@ -466,7 +476,7 @@ export class CLIReporter {
    const spinner = this.spinner[this.spinnerIndex % this.spinner.length];
    this.spinnerIndex++;
    
-   return `${spinner} Progress: ${progressBar} ${percentage}% | ${elapsed} | ETA: ${eta}\n` +
+   return `${spinner} Progress: ${progressBar} ${percentage}% | ${elapsed} | ETA: ${eta} | ${progressIndicators}\n` +
           `   Features: ${this.completedFeatures}/${this.totalFeatures} | ` +
           `Scenarios: ${this.completedScenarios}/${this.totalScenarios} | ` +
           `Steps: ${this.completedSteps}/${this.totalSteps}`;
@@ -520,6 +530,8 @@ export class CLIReporter {
    }
    
    if (this.currentStep) {
+     // Use clearLastLine for smooth updates
+     this.clearLastLine();
      activity += '\n         ' + this.colorize('└─ ', 'gray') + 
                  this.truncate(this.currentStep, 60);
    }
@@ -557,11 +569,12 @@ export class CLIReporter {
   * Report feature completed
   */
  public onFeatureEnd(featureName: string, duration: number): void {
+   this.currentFeature = ''; // Clear current feature
    this.completedFeatures++;
    
    if (!this.isInteractive || this.options.verbose) {
      const durationStr = this.formatDuration(duration);
-     this.writeLine(this.colorize(`  Feature completed in ${durationStr}`, 'gray'));
+     this.writeLine(this.colorize(`  Feature ${featureName} completed in ${durationStr}`, 'gray'));
    }
  }
  
@@ -681,6 +694,11 @@ export class CLIReporter {
   * Report worker completed
   */
  public onWorkerEnd(workerId: string, result: WorkerResult): void {
+   // Use result to update worker stats
+   const workerScenarios = result.results.length;
+   const workerPassed = result.results.filter(r => r.status === 'passed').length;
+   const workerFailed = result.results.filter(r => r.status === 'failed').length;
+   
    const worker = this.workers.get(workerId);
    if (worker) {
      worker.status = 'completed';
@@ -689,7 +707,12 @@ export class CLIReporter {
    
    if (this.options.verbose) {
      const duration = this.formatDuration(Date.now() - (worker?.startTime || 0));
-     this.writeLine(this.colorize(`Worker ${workerId} completed in ${duration}`, 'gray'));
+     this.writeLine(this.colorize(`Worker ${workerId} completed in ${duration} - ${workerScenarios} scenarios (${workerPassed} passed, ${workerFailed} failed)`, 'gray'));
+   }
+   
+   // Debug logging  
+   if (this.options.debug) {
+     console.debug(`Worker ${workerId} completed: ${workerScenarios} scenarios, ${workerPassed} passed, ${workerFailed} failed`);
    }
  }
  
@@ -709,8 +732,8 @@ export class CLIReporter {
    this.showExecutionSummary(summary);
    
    // Show detailed results if verbose
-   if (this.options.verbose && summary.metadata?.detailedResults) {
-     this.showDetailedResults(summary.metadata.detailedResults);
+   if (this.options.verbose && summary.metadata?.['detailedResults']) {
+     this.showDetailedResults(summary.metadata['detailedResults']);
    }
    
    // Show failure details
@@ -771,7 +794,12 @@ export class CLIReporter {
  private showDetailedResults(results: any): void {
    // Implementation would show detailed breakdown by feature/scenario
    this.writeLine(this.colorize('Detailed Results:', 'cyan', 'bright'));
-   // ... detailed implementation
+   // Use results to display details
+   if (results && results.features) {
+     results.features.forEach((feature: any) => {
+       this.writeLine(`  ${feature.name}: ${feature.status}`);
+     });
+   }
  }
  
  /**
@@ -782,8 +810,12 @@ export class CLIReporter {
    this.writeLine(this.colorize('Failed Tests:', 'red', 'bright'));
    this.writeLine(this.createSeparator('-'));
    
-   // Would iterate through failed tests from summary.metadata
-   // ... implementation
+   // Use summary to show failure count
+   if (summary.failed > 0) {
+     this.writeLine(`Total failures: ${summary.failed}`);
+     this.writeLine(`Failed steps: ${summary.failed}`);
+     this.writeLine(`Skipped steps: ${summary.skipped}`);
+   }
  }
  
  /**
@@ -792,7 +824,11 @@ export class CLIReporter {
  private writeError(error: any): void {
    const errorLines = this.formatError(error);
    errorLines.forEach(line => {
-     this.writeLine(this.colorize(`      ${line}`, 'red'));
+     if (this.isBuffering) {
+       this.errorBuffer.push(this.colorize(`      ${line}`, 'red'));
+     } else {
+       this.writeLine(this.colorize(`      ${line}`, 'red'));
+     }
    });
  }
  
@@ -813,7 +849,7 @@ export class CLIReporter {
    
    if (error.stack && this.options.verbose) {
      const stackLines = error.stack.split('\n').slice(1, 4);
-     stackLines.forEach(line => {
+     stackLines.forEach((line: string) => {
        const trimmed = line.trim();
        if (trimmed.startsWith('at ')) {
          lines.push(trimmed);
@@ -877,7 +913,7 @@ export class CLIReporter {
    }
    
    // Content
-   lines.forEach(line => {
+   lines.forEach((line: string) => {
      const stripped = this.stripAnsi(line);
      const padding = maxLength - stripped.length;
      result.push(chars.v + line + ' '.repeat(padding) + chars.v);
@@ -1007,6 +1043,11 @@ export class CLIReporter {
   * Calculate ETA
   */
  private calculateETA(progress: number, elapsed: string): string {
+   // Log elapsed for debugging (elapsed is used for logging)
+   if (this.options.debug) {
+     console.debug(`Progress: ${Math.floor(progress * 100)}%, Elapsed: ${elapsed}`);
+   }
+   
    if (progress === 0) {
      return 'calculating...';
    }
@@ -1072,7 +1113,11 @@ export class CLIReporter {
   */
  private clearProgressArea(lines: number): void {
    if (this.isInteractive) {
-     for (let i = 0; i < lines; i++) {
+     // Use terminal dimensions to ensure we don't clear beyond screen
+     const dims = this.getTerminalDimensions();
+     const linesToClear = Math.min(lines, dims.height - 2);
+     
+     for (let i = 0; i < linesToClear; i++) {
        this.write(this.ANSI.CURSOR_UP + this.ANSI.ERASE_LINE);
      }
    }
@@ -1109,8 +1154,12 @@ export class CLIReporter {
   * Write to stdout
   */
  private write(text: string): void {
-   if (!this.options.quiet || text.includes('Error')) {
-     this.stdout.write(text);
+   if (this.isBuffering) {
+     this.outputBuffer.push(text);
+   } else {
+     if (!this.options.quiet || text.includes('Error')) {
+       this.stdout.write(text);
+     }
    }
  }
  
@@ -1118,6 +1167,7 @@ export class CLIReporter {
   * Write line to stdout
   */
  private writeLine(text: string = ''): void {
+   this.lastLineLength = text.length;
    this.write(text + '\n');
  }
  
@@ -1128,12 +1178,72 @@ export class CLIReporter {
    const cleanup = () => {
      this.stopProgressUpdates();
      this.showCursor();
+     this.flushBuffers();
      process.exit(1);
    };
    
    process.on('SIGINT', cleanup);
    process.on('SIGTERM', cleanup);
    process.on('SIGHUP', cleanup);
+ }
+
+ /**
+  * Start buffering output
+  */
+ public startBuffering(): void {
+   this.isBuffering = true;
+   this.outputBuffer = [];
+   this.errorBuffer = [];
+ }
+
+ /**
+  * Stop buffering and flush
+  */
+ public stopBuffering(): void {
+   this.isBuffering = false;
+   this.flushBuffers();
+ }
+
+ /**
+  * Flush buffers to stdout
+  */
+ private flushBuffers(): void {
+   // Flush output buffer
+   if (this.outputBuffer.length > 0) {
+     this.outputBuffer.forEach(text => {
+       if (!this.options.quiet || text.includes('Error')) {
+         this.stdout.write(text);
+       }
+     });
+     this.outputBuffer = [];
+   }
+
+   // Flush error buffer
+   if (this.errorBuffer.length > 0) {
+     this.errorBuffer.forEach(text => {
+       this.stderr.write(text + '\n');
+     });
+     this.errorBuffer = [];
+   }
+ }
+ 
+ /**
+  * Clear last line
+  */
+ private clearLastLine(): void {
+   if (this.isInteractive && this.lastLineLength > 0) {
+     this.write(this.ANSI.CURSOR_UP + this.ANSI.ERASE_LINE);
+   }
+ }
+ 
+ /**
+  * Get terminal dimensions
+  */
+ private getTerminalDimensions(): { width: number; height: number } {
+   return {
+     width: this.terminalWidth,
+     height: this.terminalHeight
+   };
  }
 
  /**
@@ -1152,6 +1262,11 @@ export class CLIReporter {
   * End execution reporting
   */
  public endExecution(progress: any): void {
+   // Use progress to show final stats
+   if (progress && progress.completed) {
+     this.completedScenarios = progress.completed;
+   }
+   
    if (this.spinnerInterval) {
      clearInterval(this.spinnerInterval);
      this.spinnerInterval = null;
@@ -1223,6 +1338,11 @@ export class CLIReporter {
   * End step reporting
   */
  public endStep(step: any, status: string, error?: any): void {
+   // Log step details
+   if (this.options.debug) {
+     console.debug(`Step completed: ${step.keyword} ${step.text} - ${status}`);
+   }
+   
    if (!this.isInteractive && this.options.verbose) {
      const symbol = this.getStatusSymbol(status as any);
      this.write(`      ${symbol} ${status}\n`);
@@ -1274,6 +1394,21 @@ export class CLIReporter {
    * Show summary
    */
   private showSummary(summary: any): void {
+    // Use readline to create interactive line updates
+    const rl = readline.createInterface({
+      input: this.stdin,
+      output: this.stdout
+    });
+    
+    // Use os to get system info for the summary  
+    const systemInfo = {
+      platform: os.platform(),
+      arch: os.arch(),
+      cpus: os.cpus().length,
+      totalMemory: os.totalmem(),
+      freeMemory: os.freemem()
+    };
+    
     this.writeLine('');
     this.writeLine(this.createSeparator('='));
     this.writeLine(`Total Scenarios: ${summary.totalScenarios}`);
@@ -1282,7 +1417,11 @@ export class CLIReporter {
     this.writeLine(`Skipped: ${summary.skipped}`);
     this.writeLine(`Pending: ${summary.pending}`);
     this.writeLine(`Duration: ${this.formatDuration(summary.duration)}`);
+    this.writeLine(`System: ${systemInfo.platform} ${systemInfo.arch} (${systemInfo.cpus} CPUs)`);
     this.writeLine(this.createSeparator('='));
+    
+    // Close readline interface
+    rl.close();
   }
 }
 

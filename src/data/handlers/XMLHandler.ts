@@ -1,5 +1,4 @@
 // src/data/handlers/XMLHandler.ts
-
 import { DataHandler, DataProviderOptions, DataProviderResult, TestData, ValidationResult, DataTransformation } from '../types/data.types';
 import { XMLParser } from '../parsers/XMLParser';
 import { DataValidator } from '../validators/DataValidator';
@@ -405,23 +404,30 @@ export class XMLHandler implements DataHandler {
      * Validate data
      */
     async validate(data: TestData[]): Promise<ValidationResult> {
-        const result = await this.validator.validate(data, {
-            allowEmpty: false,
-            validateTypes: true
-        }, {
+        // Build basic validation rules
+        const validationRules: Record<string, any> = {};
+        
+        // Add basic required field validation for common fields
+        const commonFields = ['id', 'name'];
+        for (const field of commonFields) {
+            validationRules[field] = { type: 'required', field };
+        }
+        
+        const result = await this.validator.validate(data, validationRules, {
             validateRequired: true,
-            validateTypes: true
+            validateTypes: true,
+            stopOnFirstError: false
         });
         
         return {
             isValid: result.valid,
-            errors: result.errors.map(e => (e as any).message || 'Validation error'),
-            warnings: result.warnings?.map(w => (w as any).message || 'Validation warning'),
-            details: result.errors.map(e => ({
-                row: (e as any).recordIndex,
-                field: (e as any).field,
-                value: (e as any).value,
-                error: (e as any).message || 'Validation error'
+            errors: result.errors.map(e => e.errors?.join(', ') || 'Validation error'),
+            warnings: result.warnings?.map(w => w.errors?.join(', ') || 'Validation warning'),
+            details: result.errors.map((e, index) => ({
+                row: index,
+                field: '',
+                value: undefined,
+                error: e.errors?.join(', ') || 'Validation error'
             }))
         };
     }
