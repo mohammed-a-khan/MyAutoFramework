@@ -55,7 +55,7 @@ export class JSONParser {
             // Apply type conversion if requested
             const parseOptions = options as any;
             if (parseOptions.parseNumbers || parseOptions.parseDates) {
-                data = this.convertTypes(data, options);
+                data = await this.convertTypes(data, options);
             }
             
             const parseTime = Date.now() - startTime;
@@ -112,7 +112,7 @@ export class JSONParser {
                 // Apply type conversion
                 const convertOptions = options as any;
                 if (convertOptions.parseNumbers || convertOptions.parseDates) {
-                    data = this.convertTypes(data, options);
+                    data = await this.convertTypes(data, options);
                 }
                 
                 yield data;
@@ -499,24 +499,25 @@ export class JSONParser {
     /**
      * Convert types recursively
      */
-    private convertTypes(data: any, options: ParserOptions): any {
+    private async convertTypes(data: any, options: ParserOptions): Promise<any> {
         if (data === null || data === undefined) {
             return data;
         } else if (Array.isArray(data)) {
-            return data.map(item => this.convertTypes(item, options));
+            return await Promise.all(data.map(item => this.convertTypes(item, options)));
         } else if (typeof data === 'object') {
             const converted: any = {};
             for (const [key, value] of Object.entries(data)) {
-                converted[key] = this.convertTypes(value, options);
+                converted[key] = await this.convertTypes(value, options);
             }
             return converted;
         } else {
             const conversionOptions = options as any;
-            return this.typeConverter.convert(data, {
+            const result = await this.typeConverter.convert(data, 'auto', {
                 parseNumbers: conversionOptions.parseNumbers,
                 parseDates: conversionOptions.parseDates,
                 parseBooleans: true
             });
+            return result.success ? result.value : data;
         }
     }
 

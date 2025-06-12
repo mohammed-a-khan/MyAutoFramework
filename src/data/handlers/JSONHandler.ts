@@ -515,13 +515,11 @@ export class JSONHandler implements DataHandler {
         
         return {
             isValid: result.valid,
-            errors: result.errors.map(e => e.errors ? e.errors.join(', ') : 'Validation error'),
-            warnings: result.warnings?.map(w => w.errors ? w.errors.join(', ') : 'Validation warning'),
-            details: result.errors.map(e => ({
-                row: e.recordIndex,
-                field: e.field,
-                value: e.value,
-                error: e.message || (e.errors ? e.errors.join(', ') : 'Validation error')
+            errors: result.errors.map(e => typeof e === 'string' ? e : 'Validation error'),
+            warnings: result.warnings?.map(w => typeof w === 'string' ? w : 'Validation warning'),
+            details: result.errors.map((e, index) => ({
+                row: index,
+                error: typeof e === 'string' ? e : 'Validation error'
             }))
         };
     }

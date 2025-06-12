@@ -13,13 +13,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} is visible')
     @CSBDDStepDef('the {string} should be visible')
     async assertElementVisible(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element visible', { element: elementDescription });
+        ActionLogger.logInfo('Assert element visible', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertVisible();
             
-            ActionLogger.logSuccess('Element is visible', { element: elementDescription });
+            ActionLogger.logInfo('Element is visible', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('Visibility assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is not visible: ${(error as Error).message}`);
@@ -30,13 +30,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} is not visible')
     @CSBDDStepDef('{string} should be hidden')
     async assertElementNotVisible(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element not visible', { element: elementDescription });
+        ActionLogger.logInfo('Assert element not visible', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertHidden();
             
-            ActionLogger.logSuccess('Element is not visible', { element: elementDescription });
+            ActionLogger.logInfo('Element is not visible', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('Hidden assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is visible when it should not be: ${(error as Error).message}`);
@@ -46,13 +46,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} should be enabled')
     @CSBDDStepDef('{string} is enabled')
     async assertElementEnabled(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element enabled', { element: elementDescription });
+        ActionLogger.logInfo('Assert element enabled', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertEnabled();
             
-            ActionLogger.logSuccess('Element is enabled', { element: elementDescription });
+            ActionLogger.logInfo('Element is enabled', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('Enabled assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is not enabled: ${(error as Error).message}`);
@@ -62,13 +62,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} should be disabled')
     @CSBDDStepDef('{string} is disabled')
     async assertElementDisabled(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element disabled', { element: elementDescription });
+        ActionLogger.logInfo('Assert element disabled', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertDisabled();
             
-            ActionLogger.logSuccess('Element is disabled', { element: elementDescription });
+            ActionLogger.logInfo('Element is disabled', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('Disabled assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is not disabled: ${(error as Error).message}`);
@@ -79,9 +79,10 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} text should be {string}')
     @CSBDDStepDef('the text of {string} should be {string}')
     async assertElementText(elementDescription: string, expectedText: string): Promise<void> {
-        ActionLogger.logStep('Assert element text', { 
+        ActionLogger.logInfo('Assert element text', { 
             element: elementDescription,
-            expectedText 
+            expectedText,
+            type: 'validation_step' 
         });
         
         try {
@@ -90,16 +91,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
             
             await element.assertText(expectedText, options);
             
-            ActionLogger.logSuccess('Text assertion passed', { 
+            ActionLogger.logInfo('Text assertion passed', { 
                 element: elementDescription,
-                expectedText 
+                expectedText,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualText = await this.getElementText(elementDescription);
-            ActionLogger.logError('Text assertion failed', error as Error, {
-                expected: expectedText,
-                actual: actualText
-            });
+            ActionLogger.logError('Text assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" text mismatch. Expected: "${expectedText}", Actual: "${actualText}"`);
         }
     }
@@ -108,9 +107,10 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} text should contain {string}')
     @CSBDDStepDef('the text of {string} should contain {string}')
     async assertElementContainsText(elementDescription: string, expectedText: string): Promise<void> {
-        ActionLogger.logStep('Assert element contains text', { 
+        ActionLogger.logInfo('Assert element contains text', { 
             element: elementDescription,
-            expectedText 
+            expectedText,
+            type: 'validation_step' 
         });
         
         try {
@@ -119,16 +119,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
             
             await element.assertTextContains(expectedText, options);
             
-            ActionLogger.logSuccess('Contains text assertion passed', { 
+            ActionLogger.logInfo('Contains text assertion passed', { 
                 element: elementDescription,
-                expectedText 
+                expectedText,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualText = await this.getElementText(elementDescription);
-            ActionLogger.logError('Contains text assertion failed', error as Error, {
-                expected: expectedText,
-                actual: actualText
-            });
+            ActionLogger.logError('Contains text assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" does not contain text "${expectedText}". Actual: "${actualText}"`);
         }
     }
@@ -137,9 +135,10 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} value should be {string}')
     @CSBDDStepDef('the value of {string} should be {string}')
     async assertElementValue(elementDescription: string, expectedValue: string): Promise<void> {
-        ActionLogger.logStep('Assert element value', { 
+        ActionLogger.logInfo('Assert element value', { 
             element: elementDescription,
-            expectedValue 
+            expectedValue,
+            type: 'validation_step' 
         });
         
         try {
@@ -148,16 +147,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
             
             await element.assertValue(expectedValue, options);
             
-            ActionLogger.logSuccess('Value assertion passed', { 
+            ActionLogger.logInfo('Value assertion passed', { 
                 element: elementDescription,
-                expectedValue 
+                expectedValue,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualValue = await this.getElementValue(elementDescription);
-            ActionLogger.logError('Value assertion failed', error as Error, {
-                expected: expectedValue,
-                actual: actualValue
-            });
+            ActionLogger.logError('Value assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" value mismatch. Expected: "${expectedValue}", Actual: "${actualValue}"`);
         }
     }
@@ -165,13 +162,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} should be checked')
     @CSBDDStepDef('{string} is checked')
     async assertElementChecked(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element checked', { element: elementDescription });
+        ActionLogger.logInfo('Assert element checked', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertChecked();
             
-            ActionLogger.logSuccess('Element is checked', { element: elementDescription });
+            ActionLogger.logInfo('Element is checked', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('Checked assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is not checked: ${(error as Error).message}`);
@@ -182,13 +179,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} is not checked')
     @CSBDDStepDef('{string} should be unchecked')
     async assertElementNotChecked(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element not checked', { element: elementDescription });
+        ActionLogger.logInfo('Assert element not checked', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertUnchecked();
             
-            ActionLogger.logSuccess('Element is not checked', { element: elementDescription });
+            ActionLogger.logInfo('Element is not checked', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('Unchecked assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is checked when it should not be: ${(error as Error).message}`);
@@ -198,57 +195,53 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} should have attribute {string} with value {string}')
     @CSBDDStepDef('attribute {string} of {string} should be {string}')
     async assertElementAttribute(elementDescription: string, attributeName: string, expectedValue: string): Promise<void> {
-        ActionLogger.logStep('Assert element attribute', { 
+        ActionLogger.logInfo('Assert element attribute', { 
             element: elementDescription,
             attribute: attributeName,
-            expectedValue 
+            expectedValue,
+            type: 'validation_step' 
         });
         
         try {
             const element = await this.findElement(elementDescription);
-            await element.assertAttribute(attributeName, expectedValue);
+            await element.assertAttribute(attributeName, expectedValue, this.getAssertOptions());
             
-            ActionLogger.logSuccess('Attribute assertion passed', { 
+            ActionLogger.logInfo('Attribute assertion passed', { 
                 element: elementDescription,
                 attribute: attributeName,
-                expectedValue 
+                expectedValue,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualValue = await this.getElementAttribute(elementDescription, attributeName);
-            ActionLogger.logError('Attribute assertion failed', error as Error, {
-                attribute: attributeName,
-                expected: expectedValue,
-                actual: actualValue
-            });
-            throw new Error(`Element "${elementDescription}" attribute "${attributeName}" mismatch. Expected: "${expectedValue}", Actual: "${actualValue}"`);
+            ActionLogger.logError('Attribute assertion failed', error as Error);
+            throw new Error(`Element "${elementDescription}" attribute "${attributeName}" mismatch. Expected: "${expectedValue}", Actual: "${actualValue ?? 'null'}"`);
         }
     }
 
     @CSBDDStepDef('{string} should have CSS property {string} with value {string}')
     @CSBDDStepDef('CSS property {string} of {string} should be {string}')
     async assertElementCSSProperty(elementDescription: string, propertyName: string, expectedValue: string): Promise<void> {
-        ActionLogger.logStep('Assert element CSS property', { 
+        ActionLogger.logInfo('Assert element CSS property', { 
             element: elementDescription,
             property: propertyName,
-            expectedValue 
+            expectedValue,
+            type: 'validation_step' 
         });
         
         try {
             const element = await this.findElement(elementDescription);
-            await element.assertCSSProperty(propertyName, expectedValue);
+            await element.assertCSSProperty(propertyName, expectedValue, this.getAssertOptions());
             
-            ActionLogger.logSuccess('CSS property assertion passed', { 
+            ActionLogger.logInfo('CSS property assertion passed', { 
                 element: elementDescription,
                 property: propertyName,
-                expectedValue 
+                expectedValue,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualValue = await this.getElementCSSProperty(elementDescription, propertyName);
-            ActionLogger.logError('CSS property assertion failed', error as Error, {
-                property: propertyName,
-                expected: expectedValue,
-                actual: actualValue
-            });
+            ActionLogger.logError('CSS property assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" CSS property "${propertyName}" mismatch. Expected: "${expectedValue}", Actual: "${actualValue}"`);
         }
     }
@@ -256,7 +249,7 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('page title should be {string}')
     @CSBDDStepDef('the page title should be {string}')
     async assertPageTitle(expectedTitle: string): Promise<void> {
-        ActionLogger.logStep('Assert page title', { expectedTitle });
+        ActionLogger.logInfo('Assert page title', { expectedTitle, type: 'validation_step' });
         
         try {
             const actualTitle = await this.page.title();
@@ -265,16 +258,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Title mismatch`);
             }
             
-            ActionLogger.logSuccess('Page title assertion passed', { 
+            ActionLogger.logInfo('Page title assertion passed', { 
                 expectedTitle,
-                actualTitle 
+                actualTitle,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualTitle = await this.page.title();
-            ActionLogger.logError('Page title assertion failed', error as Error, {
-                expected: expectedTitle,
-                actual: actualTitle
-            });
+            ActionLogger.logError('Page title assertion failed', error as Error);
             throw new Error(`Page title mismatch. Expected: "${expectedTitle}", Actual: "${actualTitle}"`);
         }
     }
@@ -282,7 +273,7 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('page title should contain {string}')
     @CSBDDStepDef('the page title should contain {string}')
     async assertPageTitleContains(expectedText: string): Promise<void> {
-        ActionLogger.logStep('Assert page title contains', { expectedText });
+        ActionLogger.logInfo('Assert page title contains', { expectedText, type: 'validation_step' });
         
         try {
             const actualTitle = await this.page.title();
@@ -291,16 +282,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Title does not contain expected text`);
             }
             
-            ActionLogger.logSuccess('Page title contains assertion passed', { 
+            ActionLogger.logInfo('Page title contains assertion passed', { 
                 expectedText,
-                actualTitle 
+                actualTitle,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualTitle = await this.page.title();
-            ActionLogger.logError('Page title contains assertion failed', error as Error, {
-                expected: expectedText,
-                actual: actualTitle
-            });
+            ActionLogger.logError('Page title contains assertion failed', error as Error);
             throw new Error(`Page title does not contain "${expectedText}". Actual: "${actualTitle}"`);
         }
     }
@@ -308,7 +297,7 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('page URL should be {string}')
     @CSBDDStepDef('the page URL should be {string}')
     async assertPageURL(expectedURL: string): Promise<void> {
-        ActionLogger.logStep('Assert page URL', { expectedURL });
+        ActionLogger.logInfo('Assert page URL', { expectedURL, type: 'validation_step' });
         
         try {
             const actualURL = this.page.url();
@@ -318,16 +307,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`URL mismatch`);
             }
             
-            ActionLogger.logSuccess('Page URL assertion passed', { 
+            ActionLogger.logInfo('Page URL assertion passed', { 
                 expectedURL: resolvedExpectedURL,
-                actualURL 
+                actualURL,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualURL = this.page.url();
-            ActionLogger.logError('Page URL assertion failed', error as Error, {
-                expected: expectedURL,
-                actual: actualURL
-            });
+            ActionLogger.logError('Page URL assertion failed', error as Error);
             throw new Error(`Page URL mismatch. Expected: "${expectedURL}", Actual: "${actualURL}"`);
         }
     }
@@ -335,7 +322,7 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('page URL should contain {string}')
     @CSBDDStepDef('the page URL should contain {string}')
     async assertPageURLContains(expectedText: string): Promise<void> {
-        ActionLogger.logStep('Assert page URL contains', { expectedText });
+        ActionLogger.logInfo('Assert page URL contains', { expectedText, type: 'validation_step' });
         
         try {
             const actualURL = this.page.url();
@@ -344,16 +331,14 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`URL does not contain expected text`);
             }
             
-            ActionLogger.logSuccess('Page URL contains assertion passed', { 
+            ActionLogger.logInfo('Page URL contains assertion passed', { 
                 expectedText,
-                actualURL 
+                actualURL,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualURL = this.page.url();
-            ActionLogger.logError('Page URL contains assertion failed', error as Error, {
-                expected: expectedText,
-                actual: actualURL
-            });
+            ActionLogger.logError('Page URL contains assertion failed', error as Error);
             throw new Error(`Page URL does not contain "${expectedText}". Actual: "${actualURL}"`);
         }
     }
@@ -361,25 +346,24 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} should have {int} items')
     @CSBDDStepDef('the count of {string} should be {int}')
     async assertElementCount(elementDescription: string, expectedCount: number): Promise<void> {
-        ActionLogger.logStep('Assert element count', { 
+        ActionLogger.logInfo('Assert element count', { 
             element: elementDescription,
-            expectedCount 
+            expectedCount,
+            type: 'validation_step' 
         });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertCount(expectedCount);
             
-            ActionLogger.logSuccess('Count assertion passed', { 
+            ActionLogger.logInfo('Count assertion passed', { 
                 element: elementDescription,
-                expectedCount 
+                expectedCount,
+                type: 'validation_success' 
             });
         } catch (error) {
             const actualCount = await this.getElementCount(elementDescription);
-            ActionLogger.logError('Count assertion failed', error as Error, {
-                expected: expectedCount,
-                actual: actualCount
-            });
+            ActionLogger.logError('Count assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" count mismatch. Expected: ${expectedCount}, Actual: ${actualCount}`);
         }
     }
@@ -387,13 +371,13 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('{string} should be in viewport')
     @CSBDDStepDef('{string} is in viewport')
     async assertElementInViewport(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Assert element in viewport', { element: elementDescription });
+        ActionLogger.logInfo('Assert element in viewport', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.assertInViewport();
             
-            ActionLogger.logSuccess('Element is in viewport', { element: elementDescription });
+            ActionLogger.logInfo('Element is in viewport', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
             ActionLogger.logError('In viewport assertion failed', error as Error);
             throw new Error(`Element "${elementDescription}" is not in viewport: ${(error as Error).message}`);
@@ -403,38 +387,41 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I perform soft assertion that {string} should be visible')
     @CSBDDStepDef('soft assert {string} is visible')
     async softAssertElementVisible(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Soft assert element visible', { element: elementDescription });
+        ActionLogger.logInfo('Soft assert element visible', { element: elementDescription, type: 'validation_step' });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.softAssertVisible();
             
-            ActionLogger.logSuccess('Soft assertion: Element is visible', { element: elementDescription });
+            ActionLogger.logInfo('Soft assertion: Element is visible', { element: elementDescription, type: 'validation_success' });
         } catch (error) {
-            ActionLogger.logWarning('Soft assertion failed', { 
+            ActionLogger.logWarn('Soft assertion failed', { 
                 element: elementDescription,
                 error: (error as Error).message 
             });
             // Store soft assertion failure but don't throw
-            this.context.addSoftAssertionFailure({
-                type: 'visibility',
-                element: elementDescription,
-                error: (error as Error).message
-            });
+            this.context.addSoftAssertionFailure(
+                `Visibility assertion failed for element "${elementDescription}": ${(error as Error).message}`
+            );
         }
     }
 
     @CSBDDStepDef('I verify all elements exist:')
     @CSBDDStepDef('the following elements should exist:')
     async verifyMultipleElementsExist(dataTable: DataTable): Promise<void> {
-        ActionLogger.logStep('Verify multiple elements exist', { 
-            elementCount: dataTable.raw().length 
+        ActionLogger.logInfo('Verify multiple elements exist', { 
+            elementCount: dataTable.raw().length,
+            type: 'validation_step' 
         });
         
         const failures: string[] = [];
         
         for (const row of dataTable.raw()) {
             const elementDescription = row[0];
+            
+            if (!elementDescription) {
+                continue; // Skip empty rows
+            }
             
             try {
                 const element = await this.findElement(elementDescription);
@@ -443,7 +430,7 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
                 if (!exists) {
                     failures.push(`${elementDescription} - not found`);
                 } else {
-                    ActionLogger.logSuccess(`Element found: ${elementDescription}`);
+                    ActionLogger.logInfo(`Element found: ${elementDescription}`, { type: 'validation_success' });
                 }
             } catch (error) {
                 failures.push(`${elementDescription} - ${(error as Error).message}`);
@@ -455,11 +442,11 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
             throw new Error(`Elements not found:\n${failures.join('\n')}`);
         }
         
-        ActionLogger.logSuccess('All elements exist');
+        ActionLogger.logInfo('All elements exist', { type: 'validation_success' });
     }
 
     private async findElement(description: string): Promise<CSWebElement> {
-        const storedElement = this.context.get<CSWebElement>(`element_${description}`);
+        const storedElement = this.context.retrieve<CSWebElement>(`element_${description}`);
         if (storedElement) {
             return storedElement;
         }
@@ -512,7 +499,7 @@ export class ValidationSteps extends CSBDDBaseStepDefinition {
             const element = await this.findElement(elementDescription);
             return await element.getAttribute(attributeName);
         } catch {
-            return '<unable to get attribute>';
+            return null;
         }
     }
 

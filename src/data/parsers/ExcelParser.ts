@@ -47,7 +47,7 @@ export class ExcelParser {
             const worksheet = this.getWorksheet(workbook, options);
             
             // Parse data
-            const data = this.parseWorksheet(worksheet, options);
+            const data = await this.parseWorksheet(worksheet, options);
             
             // Get metadata
             const metadata = this.getWorkbookMetadata(workbook, worksheet);
@@ -277,7 +277,7 @@ export class ExcelParser {
             });
             
             const worksheet = this.getWorksheet(workbook, options);
-            const data = this.parseWorksheet(worksheet, { headers: true });
+            const data = await this.parseWorksheet(worksheet, { headers: true });
             
             return this.inferSchema(data, options);
             
@@ -449,7 +449,7 @@ export class ExcelParser {
     /**
      * Parse worksheet data
      */
-    private parseWorksheet(worksheet: XLSX.WorkSheet, options: ParserOptions): TestData[] {
+    private async parseWorksheet(worksheet: XLSX.WorkSheet, options: ParserOptions): Promise<TestData[]> {
         // Apply range if specified
         if (options.range) {
             worksheet['!ref'] = options.range;
@@ -473,7 +473,7 @@ export class ExcelParser {
         // Apply type conversion
         const parseOptions = options as any;
         if (parseOptions.parseNumbers !== false || parseOptions.parseDates !== false) {
-            data = data.map(row => this.convertTypes(row as TestData, options));
+            data = await Promise.all(data.map(row => this.convertTypes(row as TestData, options)));
         }
         
         // Trim values if specified
@@ -572,17 +572,18 @@ export class ExcelParser {
     /**
      * Convert types in record
      */
-    private convertTypes(record: TestData, options: ParserOptions): TestData {
+    private async convertTypes(record: TestData, options: ParserOptions): Promise<TestData> {
         const converted: TestData = {};
         const parseOptions = options as any;
         
         for (const [key, value] of Object.entries(record)) {
-            converted[key] = this.typeConverter.convert(value, {
+            const result = await this.typeConverter.convert(value, 'auto', {
                 parseNumbers: parseOptions.parseNumbers !== false,
                 parseDates: parseOptions.parseDates !== false,
                 parseBooleans: true,
                 trimStrings: parseOptions.trimValues !== false
             });
+            converted[key] = result.success ? result.value : value;
         }
         
         return converted;

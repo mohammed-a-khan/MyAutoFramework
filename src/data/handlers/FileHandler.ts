@@ -618,7 +618,7 @@ export class FileHandler implements DataHandler {
     /**
      * Validate data
      */
-    async validate(data: TestData[], options?: any): Promise<ValidationResult> {
+    async validate(data: TestData[], _options?: any): Promise<ValidationResult> {
         const validationRules: Record<string, any> = {};
         
         const result = await this.validator.validate(data, validationRules, {
@@ -629,13 +629,11 @@ export class FileHandler implements DataHandler {
         
         return {
             isValid: result.valid,
-            errors: result.errors.map(e => e.errors ? e.errors.join(', ') : 'Validation error'),
-            warnings: result.warnings?.map(w => w.errors ? w.errors.join(', ') : 'Validation warning'),
-            details: result.errors.map(e => ({
-                row: e.recordIndex,
-                field: e.field,
-                value: e.value,
-                error: e.message || (e.errors ? e.errors.join(', ') : 'Validation error')
+            errors: result.errors.map(e => typeof e === 'string' ? e : 'Validation error'),
+            warnings: result.warnings?.map(w => typeof w === 'string' ? w : 'Validation warning'),
+            details: result.errors.map((e, index) => ({
+                row: index,
+                error: typeof e === 'string' ? e : 'Validation error'
             }))
         };
     }

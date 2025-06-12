@@ -11,23 +11,42 @@ import { MockResponse, URLPattern } from '../../core/network/types/network.types
 import { DataTable } from '../../bdd/types/bdd.types';
 
 export class NetworkSteps extends CSBDDBaseStepDefinition {
-    private networkInterceptor: NetworkInterceptor;
-    private requestMocker: RequestMocker;
-    private responseModifier: ResponseModifier;
+    private networkInterceptor: NetworkInterceptor | null = null;
+    private requestMocker: RequestMocker | null = null;
+    private responseModifier: ResponseModifier | null = null;
     private harRecorder: HARRecorder;
 
     constructor() {
         super();
-        this.networkInterceptor = new NetworkInterceptor();
-        this.requestMocker = new RequestMocker();
-        this.responseModifier = new ResponseModifier();
+        // Network classes will be initialized when page is available
         this.harRecorder = new HARRecorder();
+    }
+
+    private getNetworkInterceptor(): NetworkInterceptor {
+        if (!this.networkInterceptor) {
+            this.networkInterceptor = new NetworkInterceptor(this.page);
+        }
+        return this.networkInterceptor;
+    }
+
+    private getRequestMocker(): RequestMocker {
+        if (!this.requestMocker) {
+            this.requestMocker = new RequestMocker(this.page);
+        }
+        return this.requestMocker;
+    }
+
+    private getResponseModifier(): ResponseModifier {
+        if (!this.responseModifier) {
+            this.responseModifier = new ResponseModifier(this.page);
+        }
+        return this.responseModifier;
     }
 
     @CSBDDStepDef('user mocks {string} endpoint with response:')
     @CSBDDStepDef('I mock {string} with response:')
     async mockEndpointWithResponse(endpoint: string, docString: string): Promise<void> {
-        ActionLogger.logStep('Mock endpoint', { endpoint });
+        ActionLogger.logInfo('Mock endpoint', { endpoint, type: 'network_step' });
         
         try {
             let responseData: any;
@@ -46,11 +65,12 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
                 body: responseData
             };
             
-            await this.requestMocker.mockEndpoint(this.resolveEndpoint(endpoint), mockResponse);
+            await this.getRequestMocker().mockEndpoint(this.resolveEndpoint(endpoint), mockResponse);
             
-            ActionLogger.logSuccess('Endpoint mocked', { 
+            ActionLogger.logInfo('Endpoint mocked', { 
                 endpoint,
-                responseType: typeof responseData 
+                responseType: typeof responseData,
+                type: 'network_success'
             });
         } catch (error) {
             ActionLogger.logError('Mock endpoint failed', error as Error);
@@ -61,7 +81,7 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user mocks {string} endpoint with status {int}')
     @CSBDDStepDef('I mock {string} to return status {int}')
     async mockEndpointWithStatus(endpoint: string, statusCode: number): Promise<void> {
-        ActionLogger.logStep('Mock endpoint with status', { endpoint, statusCode });
+        ActionLogger.logInfo('Mock endpoint with status', { endpoint, statusCode, type: 'network_step' });
         
         try {
             const mockResponse: MockResponse = {
@@ -70,9 +90,9 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
                 body: ''
             };
             
-            await this.requestMocker.mockEndpoint(this.resolveEndpoint(endpoint), mockResponse);
+            await this.getRequestMocker().mockEndpoint(this.resolveEndpoint(endpoint), mockResponse);
             
-            ActionLogger.logSuccess('Endpoint mocked with status', { endpoint, statusCode });
+            ActionLogger.logInfo('Endpoint mocked with status', { endpoint, statusCode, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Mock endpoint with status failed', error as Error);
             throw new Error(`Failed to mock endpoint "${endpoint}" with status ${statusCode}: ${(error as Error).message}`);
@@ -82,13 +102,13 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user mocks {string} endpoint from file {string}')
     @CSBDDStepDef('I mock {string} with response from {string}')
     async mockEndpointFromFile(endpoint: string, filePath: string): Promise<void> {
-        ActionLogger.logStep('Mock endpoint from file', { endpoint, filePath });
+        ActionLogger.logInfo('Mock endpoint from file', { endpoint, filePath, type: 'network_step' });
         
         try {
             const resolvedPath = this.resolveFilePath(filePath);
-            await this.requestMocker.mockFromFile(this.resolveEndpoint(endpoint), resolvedPath);
+            await this.getRequestMocker().mockFromFile(this.resolveEndpoint(endpoint), resolvedPath);
             
-            ActionLogger.logSuccess('Endpoint mocked from file', { endpoint, filePath: resolvedPath });
+            ActionLogger.logInfo('Endpoint mocked from file', { endpoint, filePath: resolvedPath, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Mock endpoint from file failed', error as Error);
             throw new Error(`Failed to mock endpoint "${endpoint}" from file: ${(error as Error).message}`);
@@ -98,14 +118,14 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user intercepts {string} requests')
     @CSBDDStepDef('I intercept requests to {string}')
     async interceptRequests(pattern: string): Promise<void> {
-        ActionLogger.logStep('Intercept requests', { pattern });
+        ActionLogger.logInfo('Intercept requests', { pattern, type: 'network_step' });
         
         try {
             const urlPattern: URLPattern = { url: pattern };
             
-            await this.networkInterceptor.recordRequests(urlPattern);
+            await this.getNetworkInterceptor().recordRequests(urlPattern);
             
-            ActionLogger.logSuccess('Request interception started', { pattern });
+            ActionLogger.logInfo('Request interception started', { pattern, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Intercept requests failed', error as Error);
             throw new Error(`Failed to intercept requests to "${pattern}": ${(error as Error).message}`);
@@ -115,14 +135,14 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user blocks {string} requests')
     @CSBDDStepDef('I block requests to {string}')
     async blockRequests(pattern: string): Promise<void> {
-        ActionLogger.logStep('Block requests', { pattern });
+        ActionLogger.logInfo('Block requests', { pattern, type: 'network_step' });
         
         try {
             const urlPattern: URLPattern = { url: pattern };
             
-            await this.networkInterceptor.abortRequests(urlPattern);
+            await this.getNetworkInterceptor().abortRequests(urlPattern);
             
-            ActionLogger.logSuccess('Requests blocked', { pattern });
+            ActionLogger.logInfo('Requests blocked', { pattern, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Block requests failed', error as Error);
             throw new Error(`Failed to block requests to "${pattern}": ${(error as Error).message}`);
@@ -132,14 +152,14 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user delays {string} requests by {int} milliseconds')
     @CSBDDStepDef('I delay requests to {string} by {int} ms')
     async delayRequests(pattern: string, delay: number): Promise<void> {
-        ActionLogger.logStep('Delay requests', { pattern, delay });
+        ActionLogger.logInfo('Delay requests', { pattern, delay, type: 'network_step' });
         
         try {
             const urlPattern: URLPattern = { url: pattern };
             
-            await this.networkInterceptor.delayRequests(urlPattern, delay);
+            await this.getNetworkInterceptor().delayRequests(urlPattern, delay);
             
-            ActionLogger.logSuccess('Request delay configured', { pattern, delay });
+            ActionLogger.logInfo('Request delay configured', { pattern, delay, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Delay requests failed', error as Error);
             throw new Error(`Failed to delay requests to "${pattern}": ${(error as Error).message}`);
@@ -149,14 +169,14 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user throttles {string} requests to {int} kbps')
     @CSBDDStepDef('I throttle bandwidth for {string} to {int} kbps')
     async throttleRequests(pattern: string, bandwidth: number): Promise<void> {
-        ActionLogger.logStep('Throttle requests', { pattern, bandwidth });
+        ActionLogger.logInfo('Throttle requests', { pattern, bandwidth, type: 'network_step' });
         
         try {
             const urlPattern: URLPattern = { url: pattern };
             
-            await this.networkInterceptor.throttleRequests(urlPattern, bandwidth);
+            await this.getNetworkInterceptor().throttleRequests(urlPattern, bandwidth);
             
-            ActionLogger.logSuccess('Request throttling configured', { pattern, bandwidth });
+            ActionLogger.logInfo('Request throttling configured', { pattern, bandwidth, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Throttle requests failed', error as Error);
             throw new Error(`Failed to throttle requests to "${pattern}": ${(error as Error).message}`);
@@ -166,10 +186,10 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user should see {int} requests to {string}')
     @CSBDDStepDef('there should be {int} requests to {string}')
     async assertRequestCount(expectedCount: number, pattern: string): Promise<void> {
-        ActionLogger.logStep('Assert request count', { expectedCount, pattern });
+        ActionLogger.logInfo('Assert request count', { expectedCount, pattern, type: 'network_step' });
         
         try {
-            const recordedRequests = this.networkInterceptor.getRecordedRequests()
+            const recordedRequests = this.getNetworkInterceptor().getRecordedRequests()
                 .filter(req => req.url().includes(pattern));
             
             const actualCount = recordedRequests.length;
@@ -178,10 +198,11 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Request count mismatch. Expected: ${expectedCount}, Actual: ${actualCount}`);
             }
             
-            ActionLogger.logSuccess('Request count assertion passed', { 
+            ActionLogger.logInfo('Request count assertion passed', { 
                 pattern,
                 expectedCount,
-                actualCount 
+                actualCount,
+                type: 'network_success'
             });
         } catch (error) {
             ActionLogger.logError('Request count assertion failed', error as Error);
@@ -192,10 +213,10 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user verifies request to {string} contains header {string} with value {string}')
     @CSBDDStepDef('the request to {string} should have header {string} as {string}')
     async verifyRequestHeader(pattern: string, headerName: string, expectedValue: string): Promise<void> {
-        ActionLogger.logStep('Verify request header', { pattern, headerName, expectedValue });
+        ActionLogger.logInfo('Verify request header', { pattern, headerName, expectedValue, type: 'network_step' });
         
         try {
-            const requests = this.networkInterceptor.getRecordedRequests()
+            const requests = this.getNetworkInterceptor().getRecordedRequests()
                 .filter(req => req.url().includes(pattern));
             
             if (requests.length === 0) {
@@ -203,16 +224,20 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
             }
             
             const request = requests[requests.length - 1]; // Get most recent
+            if (!request) {
+                throw new Error('No request found');
+            }
             const actualValue = request.headers()[headerName.toLowerCase()];
             
             if (actualValue !== expectedValue) {
                 throw new Error(`Header value mismatch. Expected: "${expectedValue}", Actual: "${actualValue}"`);
             }
             
-            ActionLogger.logSuccess('Request header verified', { 
+            ActionLogger.logInfo('Request header verified', { 
                 pattern,
                 headerName,
-                expectedValue 
+                expectedValue,
+                type: 'network_success'
             });
         } catch (error) {
             ActionLogger.logError('Request header verification failed', error as Error);
@@ -223,7 +248,7 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user starts recording network traffic')
     @CSBDDStepDef('I start HAR recording')
     async startHARRecording(): Promise<void> {
-        ActionLogger.logStep('Start HAR recording');
+        ActionLogger.logInfo('Start HAR recording', { type: 'network_step' });
         
         try {
             await this.harRecorder.startRecording(this.page, {
@@ -231,7 +256,7 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
                 maxSize: ConfigurationManager.getInt('HAR_MAX_SIZE', 50 * 1024 * 1024) // 50MB default
             });
             
-            ActionLogger.logSuccess('HAR recording started');
+            ActionLogger.logInfo('HAR recording started', { type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Start HAR recording failed', error as Error);
             throw new Error(`Failed to start HAR recording: ${(error as Error).message}`);
@@ -241,16 +266,17 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user stops recording network traffic')
     @CSBDDStepDef('I stop HAR recording')
     async stopHARRecording(): Promise<void> {
-        ActionLogger.logStep('Stop HAR recording');
+        ActionLogger.logInfo('Stop HAR recording', { type: 'network_step' });
         
         try {
             const har = await this.harRecorder.stopRecording();
             
             // Store HAR for later use
-            this.context.set('lastHAR', har);
+            this.context.store('lastHAR', har, 'scenario');
             
-            ActionLogger.logSuccess('HAR recording stopped', {
-                entryCount: har.log.entries.length
+            ActionLogger.logInfo('HAR recording stopped', {
+                entryCount: har.log.entries.length,
+                type: 'network_success'
             });
         } catch (error) {
             ActionLogger.logError('Stop HAR recording failed', error as Error);
@@ -261,13 +287,13 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user saves network recording to {string}')
     @CSBDDStepDef('I save HAR to {string}')
     async saveHAR(fileName: string): Promise<void> {
-        ActionLogger.logStep('Save HAR file', { fileName });
+        ActionLogger.logInfo('Save HAR file', { fileName, type: 'network_step' });
         
         try {
             const harPath = this.resolveHARPath(fileName);
             await this.harRecorder.saveHAR(harPath);
             
-            ActionLogger.logSuccess('HAR file saved', { path: harPath });
+            ActionLogger.logInfo('HAR file saved', { path: harPath, type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Save HAR failed', error as Error);
             throw new Error(`Failed to save HAR to "${fileName}": ${(error as Error).message}`);
@@ -277,10 +303,10 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user analyzes network performance')
     @CSBDDStepDef('I analyze HAR performance')
     async analyzeNetworkPerformance(): Promise<void> {
-        ActionLogger.logStep('Analyze network performance');
+        ActionLogger.logInfo('Analyze network performance', { type: 'network_step' });
         
         try {
-            const har = this.context.get('lastHAR');
+            const har = this.context.retrieve('lastHAR');
             if (!har) {
                 throw new Error('No HAR recording found. Please start and stop recording first.');
             }
@@ -289,14 +315,15 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
             const metrics = this.harRecorder.getPerformanceMetrics(har);
             
             // Store analysis results
-            this.context.set('networkAnalysis', analysis);
-            this.context.set('performanceMetrics', metrics);
+            this.context.store('networkAnalysis', analysis, 'scenario');
+            this.context.store('performanceMetrics', metrics, 'scenario');
             
-            ActionLogger.logSuccess('Network performance analyzed', {
+            ActionLogger.logInfo('Network performance analyzed', {
                 totalRequests: analysis.summary.totalRequests,
                 totalSize: `${(analysis.summary.totalSize / 1024 / 1024).toFixed(2)} MB`,
                 avgResponseTime: `${analysis.summary.averageResponseTime.toFixed(2)} ms`,
-                pageLoadTime: `${metrics.pageLoadTime.toFixed(2)} ms`
+                pageLoadTime: `${metrics.pageLoadTime.toFixed(2)} ms`,
+                type: 'network_success'
             });
         } catch (error) {
             ActionLogger.logError('Network analysis failed', error as Error);
@@ -307,12 +334,12 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user enables offline mode')
     @CSBDDStepDef('I go offline')
     async enableOfflineMode(): Promise<void> {
-        ActionLogger.logStep('Enable offline mode');
+        ActionLogger.logInfo('Enable offline mode', { type: 'network_step' });
         
         try {
-            await this.networkInterceptor.enableOfflineMode();
+            await this.getNetworkInterceptor().enableOfflineMode();
             
-            ActionLogger.logSuccess('Offline mode enabled');
+            ActionLogger.logInfo('Offline mode enabled', { type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Enable offline mode failed', error as Error);
             throw new Error(`Failed to enable offline mode: ${(error as Error).message}`);
@@ -322,12 +349,12 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user disables offline mode')
     @CSBDDStepDef('I go online')
     async disableOfflineMode(): Promise<void> {
-        ActionLogger.logStep('Disable offline mode');
+        ActionLogger.logInfo('Disable offline mode', { type: 'network_step' });
         
         try {
-            await this.networkInterceptor.clearInterceptors();
+            await this.getNetworkInterceptor().clearInterceptors();
             
-            ActionLogger.logSuccess('Offline mode disabled');
+            ActionLogger.logInfo('Offline mode disabled', { type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Disable offline mode failed', error as Error);
             throw new Error(`Failed to disable offline mode: ${(error as Error).message}`);
@@ -337,33 +364,34 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user modifies response for {string} endpoint:')
     @CSBDDStepDef('I modify {string} response to:')
     async modifyResponse(endpoint: string, dataTable: DataTable): Promise<void> {
-        ActionLogger.logStep('Modify response', { endpoint });
+        ActionLogger.logInfo('Modify response', { endpoint, type: 'network_step' });
         
         try {
             const modifications = dataTable.hashes();
             const urlPattern: URLPattern = { url: this.resolveEndpoint(endpoint) };
             
             for (const mod of modifications) {
-                if (mod.field && mod.value) {
-                    await this.responseModifier.injectField(
+                if (mod['field'] && mod['value']) {
+                    await this.getResponseModifier().injectField(
                         urlPattern,
-                        mod.field,
-                        this.parseValue(mod.value)
+                        mod['field'],
+                        this.parseValue(mod['value'])
                     );
                 }
                 
-                if (mod.header && mod.headerValue) {
-                    await this.responseModifier.injectHeader(
+                if (mod['header'] && mod['headerValue']) {
+                    await this.getResponseModifier().injectHeader(
                         urlPattern,
-                        mod.header,
-                        mod.headerValue
+                        mod['header'],
+                        mod['headerValue']
                     );
                 }
             }
             
-            ActionLogger.logSuccess('Response modifications configured', { 
+            ActionLogger.logInfo('Response modifications configured', { 
                 endpoint,
-                modificationCount: modifications.length 
+                modificationCount: modifications.length,
+                type: 'network_success'
             });
         } catch (error) {
             ActionLogger.logError('Modify response failed', error as Error);
@@ -374,14 +402,14 @@ export class NetworkSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user clears all network mocks')
     @CSBDDStepDef('I clear network mocks')
     async clearNetworkMocks(): Promise<void> {
-        ActionLogger.logStep('Clear network mocks');
+        ActionLogger.logInfo('Clear network mocks', { type: 'network_step' });
         
         try {
-            await this.requestMocker.clearMocks();
-            await this.networkInterceptor.clearInterceptors();
-            await this.responseModifier.clearModifiers();
+            await this.getRequestMocker().clearMocks();
+            await this.getNetworkInterceptor().clearInterceptors();
+            await this.getResponseModifier().clearModifiers();
             
-            ActionLogger.logSuccess('All network mocks cleared');
+            ActionLogger.logInfo('All network mocks cleared', { type: 'network_success' });
         } catch (error) {
             ActionLogger.logError('Clear network mocks failed', error as Error);
             throw new Error(`Failed to clear network mocks: ${(error as Error).message}`);

@@ -20,25 +20,26 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
 
     constructor() {
         super();
-        this.debugManager = new DebugManager();
-        this.screenshotManager = new ScreenshotManager();
-        this.traceRecorder = new TraceRecorder();
-        this.videoRecorder = new VideoRecorder();
-        this.consoleLogger = new ConsoleLogger();
+        this.debugManager = DebugManager.getInstance();
+        this.screenshotManager = ScreenshotManager.getInstance();
+        this.traceRecorder = TraceRecorder.getInstance();
+        this.videoRecorder = VideoRecorder.getInstance();
+        this.consoleLogger = ConsoleLogger.getInstance();
     }
 
     @CSBDDStepDef('user pauses execution')
     @CSBDDStepDef('I pause')
     @CSBDDStepDef('debug pause')
     async pauseExecution(): Promise<void> {
-        ActionLogger.logStep('Pause execution for debugging');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('pause_execution', {});
         
         try {
             await this.debugManager.pauseNow();
             
-            ActionLogger.logSuccess('Execution resumed after pause');
+            await actionLogger.logAction('pause_execution_resumed', { success: true });
         } catch (error) {
-            ActionLogger.logError('Pause execution failed', error as Error);
+            await await actionLogger.logError(error as Error, { action: 'pause_execution' });
             throw new Error(`Failed to pause execution: ${(error as Error).message}`);
         }
     }
@@ -47,14 +48,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I wait for {int} seconds')
     @CSBDDStepDef('pause for {int} seconds')
     async pauseForSeconds(seconds: number): Promise<void> {
-        ActionLogger.logStep('Pause for seconds', { seconds });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('pause_for_seconds', { seconds });
         
         try {
             await this.page.waitForTimeout(seconds * 1000);
             
-            ActionLogger.logSuccess('Pause completed', { seconds });
+            await actionLogger.logAction('pause_completed', { seconds, success: true });
         } catch (error) {
-            ActionLogger.logError('Pause for seconds failed', error as Error);
+            await await actionLogger.logError(error as Error, { action: 'pause_for_seconds', seconds });
             throw new Error(`Failed to pause for ${seconds} seconds: ${(error as Error).message}`);
         }
     }
@@ -62,8 +64,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user takes screenshot')
     @CSBDDStepDef('I take a screenshot')
     @CSBDDStepDef('capture screenshot')
-    async takeScreenshot(): Promise<void> {
-        ActionLogger.logStep('Take screenshot');
+    override async takeScreenshot(): Promise<void> {
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Take screenshot');
         
         try {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -71,9 +74,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
             
             await this.debugManager.takeDebugScreenshot(name);
             
-            ActionLogger.logSuccess('Screenshot taken', { name });
+            await actionLogger.logAction('Screenshot taken', { name });
         } catch (error) {
-            ActionLogger.logError('Take screenshot failed', error as Error);
+            await actionLogger.logError('Take screenshot failed', error as Error);
             throw new Error(`Failed to take screenshot: ${(error as Error).message}`);
         }
     }
@@ -81,14 +84,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user takes screenshot named {string}')
     @CSBDDStepDef('I take a screenshot called {string}')
     async takeNamedScreenshot(name: string): Promise<void> {
-        ActionLogger.logStep('Take named screenshot', { name });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Take named screenshot', { name });
         
         try {
             await this.debugManager.takeDebugScreenshot(name);
             
-            ActionLogger.logSuccess('Screenshot taken', { name });
+            await actionLogger.logAction('Screenshot taken', { name });
         } catch (error) {
-            ActionLogger.logError('Take named screenshot failed', error as Error);
+            await actionLogger.logError('Take named screenshot failed', error as Error);
             throw new Error(`Failed to take screenshot "${name}": ${(error as Error).message}`);
         }
     }
@@ -96,7 +100,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user takes full page screenshot')
     @CSBDDStepDef('I capture full page screenshot')
     async takeFullPageScreenshot(): Promise<void> {
-        ActionLogger.logStep('Take full page screenshot');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Take full page screenshot');
         
         try {
             const screenshot = await this.screenshotManager.takeFullPageScreenshot(this.page);
@@ -108,9 +113,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
             const fs = require('fs').promises;
             await fs.writeFile(path, screenshot);
             
-            ActionLogger.logSuccess('Full page screenshot taken', { path });
+            await actionLogger.logAction('Full page screenshot taken', { path });
         } catch (error) {
-            ActionLogger.logError('Take full page screenshot failed', error as Error);
+            await actionLogger.logError('Take full page screenshot failed', error as Error);
             throw new Error(`Failed to take full page screenshot: ${(error as Error).message}`);
         }
     }
@@ -118,7 +123,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user takes screenshot of {string}')
     @CSBDDStepDef('I capture screenshot of {string}')
     async takeElementScreenshot(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Take element screenshot', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Take element screenshot', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -132,12 +138,12 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
             const fs = require('fs').promises;
             await fs.writeFile(path, screenshot);
             
-            ActionLogger.logSuccess('Element screenshot taken', { 
+            await actionLogger.logAction('Element screenshot taken', { 
                 element: elementDescription,
                 path 
             });
         } catch (error) {
-            ActionLogger.logError('Take element screenshot failed', error as Error);
+            await actionLogger.logError('Take element screenshot failed', error as Error);
             throw new Error(`Failed to take screenshot of "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -146,7 +152,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I enable debugging')
     @CSBDDStepDef('debug mode on')
     async enableDebugMode(): Promise<void> {
-        ActionLogger.logStep('Enable debug mode');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Enable debug mode');
         
         try {
             this.debugManager.enableDebugMode();
@@ -155,9 +162,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
             ConfigurationManager.set('LOG_LEVEL', 'debug');
             ConfigurationManager.set('VERBOSE_LOGGING', 'true');
             
-            ActionLogger.logSuccess('Debug mode enabled');
+            await actionLogger.logAction('Debug mode enabled');
         } catch (error) {
-            ActionLogger.logError('Enable debug mode failed', error as Error);
+            await actionLogger.logError('Enable debug mode failed', error as Error);
             throw new Error(`Failed to enable debug mode: ${(error as Error).message}`);
         }
     }
@@ -166,14 +173,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I set a breakpoint')
     @CSBDDStepDef('break on next step')
     async setBreakpointOnNextStep(): Promise<void> {
-        ActionLogger.logStep('Set breakpoint on next step');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Set breakpoint on next step');
         
         try {
             this.debugManager.pauseOnNextStep();
             
-            ActionLogger.logSuccess('Breakpoint set for next step');
+            await actionLogger.logAction('Breakpoint set for next step');
         } catch (error) {
-            ActionLogger.logError('Set breakpoint failed', error as Error);
+            await actionLogger.logError('Set breakpoint failed', error as Error);
             throw new Error(`Failed to set breakpoint: ${(error as Error).message}`);
         }
     }
@@ -181,14 +189,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user sets breakpoint on step matching {string}')
     @CSBDDStepDef('I set breakpoint for steps containing {string}')
     async setBreakpointOnPattern(stepPattern: string): Promise<void> {
-        ActionLogger.logStep('Set breakpoint on pattern', { pattern: stepPattern });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Set breakpoint on pattern', { pattern: stepPattern });
         
         try {
             this.debugManager.setBreakpoint(stepPattern);
             
-            ActionLogger.logSuccess('Breakpoint set for pattern', { pattern: stepPattern });
+            await actionLogger.logAction('Breakpoint set for pattern', { pattern: stepPattern });
         } catch (error) {
-            ActionLogger.logError('Set breakpoint pattern failed', error as Error);
+            await actionLogger.logError('Set breakpoint pattern failed', error as Error);
             throw new Error(`Failed to set breakpoint for pattern "${stepPattern}": ${(error as Error).message}`);
         }
     }
@@ -196,7 +205,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user starts trace recording')
     @CSBDDStepDef('I start recording trace')
     async startTraceRecording(): Promise<void> {
-        ActionLogger.logStep('Start trace recording');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Start trace recording');
         
         try {
             await this.traceRecorder.startTracing(this.page, {
@@ -205,9 +215,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
                 sources: true
             });
             
-            ActionLogger.logSuccess('Trace recording started');
+            await actionLogger.logAction('Trace recording started');
         } catch (error) {
-            ActionLogger.logError('Start trace recording failed', error as Error);
+            await actionLogger.logError('Start trace recording failed', error as Error);
             throw new Error(`Failed to start trace recording: ${(error as Error).message}`);
         }
     }
@@ -215,7 +225,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user stops trace recording')
     @CSBDDStepDef('I stop recording trace')
     async stopTraceRecording(): Promise<void> {
-        ActionLogger.logStep('Stop trace recording');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Stop trace recording');
         
         try {
             await this.traceRecorder.stopTracing();
@@ -225,9 +236,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
             
             await this.traceRecorder.saveTrace(tracePath);
             
-            ActionLogger.logSuccess('Trace recording stopped and saved', { path: tracePath });
+            await actionLogger.logAction('Trace recording stopped and saved', { path: tracePath });
         } catch (error) {
-            ActionLogger.logError('Stop trace recording failed', error as Error);
+            await actionLogger.logError('Stop trace recording failed', error as Error);
             throw new Error(`Failed to stop trace recording: ${(error as Error).message}`);
         }
     }
@@ -235,16 +246,18 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user starts video recording')
     @CSBDDStepDef('I start recording video')
     async startVideoRecording(): Promise<void> {
-        ActionLogger.logStep('Start video recording');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Start video recording');
         
         try {
             await this.videoRecorder.startRecording(this.page, {
-                size: { width: 1920, height: 1080 }
+                width: 1920,
+                height: 1080
             });
             
-            ActionLogger.logSuccess('Video recording started');
+            await actionLogger.logAction('Video recording started');
         } catch (error) {
-            ActionLogger.logError('Start video recording failed', error as Error);
+            await actionLogger.logError('Start video recording failed', error as Error);
             throw new Error(`Failed to start video recording: ${(error as Error).message}`);
         }
     }
@@ -252,14 +265,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user stops video recording')
     @CSBDDStepDef('I stop recording video')
     async stopVideoRecording(): Promise<void> {
-        ActionLogger.logStep('Stop video recording');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Stop video recording');
         
         try {
             const videoPath = await this.videoRecorder.stopRecording();
             
-            ActionLogger.logSuccess('Video recording stopped', { path: videoPath });
+            await actionLogger.logAction('Video recording stopped', { path: videoPath });
         } catch (error) {
-            ActionLogger.logError('Stop video recording failed', error as Error);
+            await actionLogger.logError('Stop video recording failed', error as Error);
             throw new Error(`Failed to stop video recording: ${(error as Error).message}`);
         }
     }
@@ -267,14 +281,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user captures console logs')
     @CSBDDStepDef('I start capturing browser console')
     async startConsoleCapture(): Promise<void> {
-        ActionLogger.logStep('Start console capture');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Start console capture');
         
         try {
             this.consoleLogger.startCapture(this.page);
             
-            ActionLogger.logSuccess('Console capture started');
+            await actionLogger.logAction('Console capture started');
         } catch (error) {
-            ActionLogger.logError('Start console capture failed', error as Error);
+            await actionLogger.logError('Start console capture failed', error as Error);
             throw new Error(`Failed to start console capture: ${(error as Error).message}`);
         }
     }
@@ -282,25 +297,26 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user prints console logs')
     @CSBDDStepDef('I display browser console logs')
     async printConsoleLogs(): Promise<void> {
-        ActionLogger.logStep('Print console logs');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Print console logs');
         
         try {
             const logs = this.consoleLogger.getConsoleLogs();
             
             if (logs.length === 0) {
-                ActionLogger.logInfo('No console logs captured');
+                await actionLogger.logAction('No console logs captured');
                 return;
             }
             
             const logOutput = logs.map(log => 
-                `[${log.type}] ${log.timestamp}: ${log.text}`
+                `[${log.level}] ${log.timestamp}: ${log.text}`
             ).join('\n');
             
-            ActionLogger.logInfo('Console logs:\n' + logOutput);
+            await actionLogger.logAction('Console logs:\n' + logOutput);
             
-            ActionLogger.logSuccess('Console logs printed', { count: logs.length });
+            await actionLogger.logAction('Console logs printed', { count: logs.length });
         } catch (error) {
-            ActionLogger.logError('Print console logs failed', error as Error);
+            await actionLogger.logError('Print console logs failed', error as Error);
             throw new Error(`Failed to print console logs: ${(error as Error).message}`);
         }
     }
@@ -308,7 +324,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user highlights {string}')
     @CSBDDStepDef('I highlight element {string}')
     async highlightElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Highlight element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Highlight element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -327,9 +344,9 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
                 }, 3000);
             }, await element.elementHandle());
             
-            ActionLogger.logSuccess('Element highlighted', { element: elementDescription });
+            await actionLogger.logAction('Element highlighted', { element: elementDescription });
         } catch (error) {
-            ActionLogger.logError('Highlight element failed', error as Error);
+            await actionLogger.logError('Highlight element failed', error as Error);
             throw new Error(`Failed to highlight "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -337,21 +354,22 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user captures page state')
     @CSBDDStepDef('I capture current page state')
     async capturePageState(): Promise<void> {
-        ActionLogger.logStep('Capture page state');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Capture page state');
         
         try {
             const pageState = await this.debugManager.capturePageState(this.page);
             
             // Store for later use
-            this.context.set('capturedPageState', pageState);
+            this.context.store('capturedPageState', pageState);
             
-            ActionLogger.logSuccess('Page state captured', {
+            await actionLogger.logAction('Page state captured', {
                 url: pageState.url,
                 title: pageState.title,
                 timestamp: pageState.timestamp
             });
         } catch (error) {
-            ActionLogger.logError('Capture page state failed', error as Error);
+            await actionLogger.logError('Capture page state failed', error as Error);
             throw new Error(`Failed to capture page state: ${(error as Error).message}`);
         }
     }
@@ -359,7 +377,8 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user prints page metrics')
     @CSBDDStepDef('I display page performance metrics')
     async printPageMetrics(): Promise<void> {
-        ActionLogger.logStep('Print page metrics');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('Print page metrics');
         
         try {
             const metrics = await this.page.evaluate(() => {
@@ -370,11 +389,11 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
                     loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
                     domInteractive: navigation.domInteractive - navigation.fetchStart,
                     responseTime: navigation.responseEnd - navigation.requestStart,
-                    renderTime: navigation.domComplete - navigation.domLoading
+                    renderTime: navigation.domComplete - navigation.domInteractive
                 };
             });
             
-            ActionLogger.logInfo('Page Performance Metrics:\n' + 
+            await actionLogger.logAction('Page Performance Metrics:\n' + 
                 `DOM Content Loaded: ${metrics.domContentLoaded}ms\n` +
                 `Page Load Complete: ${metrics.loadComplete}ms\n` +
                 `DOM Interactive: ${metrics.domInteractive}ms\n` +
@@ -382,15 +401,15 @@ export class DebugSteps extends CSBDDBaseStepDefinition {
                 `Render Time: ${metrics.renderTime}ms`
             );
             
-            ActionLogger.logSuccess('Page metrics printed');
+            await actionLogger.logAction('Page metrics printed');
         } catch (error) {
-            ActionLogger.logError('Print page metrics failed', error as Error);
+            await actionLogger.logError('Print page metrics failed', error as Error);
             throw new Error(`Failed to print page metrics: ${(error as Error).message}`);
         }
     }
 
     private async findElement(description: string): Promise<CSWebElement> {
-        const storedElement = this.context.get<CSWebElement>(`element_${description}`);
+        const storedElement = this.context.retrieve<CSWebElement>(`element_${description}`);
         if (storedElement) {
             return storedElement;
         }

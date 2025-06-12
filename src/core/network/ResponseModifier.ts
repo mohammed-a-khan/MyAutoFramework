@@ -130,8 +130,9 @@ export class ResponseModifier {
             };
 
             await route.fulfill({
-                response,
-                headers
+                status: response.status(),
+                headers,
+                body: await response.body()
             });
 
             this.recordModification({
@@ -155,8 +156,9 @@ export class ResponseModifier {
             delete headers[name.toLowerCase()];
 
             await route.fulfill({
-                response,
-                headers
+                status: response.status(),
+                headers,
+                body: await response.body()
             });
 
             this.recordModification({
@@ -201,7 +203,8 @@ export class ResponseModifier {
                 }
 
                 await route.fulfill({
-                    response,
+                    status: response.status(),
+                    headers: response.headers(),
                     body
                 });
 
@@ -219,7 +222,11 @@ export class ResponseModifier {
                 const logger = Logger.getInstance();
                 logger.error('ResponseModifier: Body transformation failed', error as Error);
                 // Fallback to original response
-                await route.fulfill({ response });
+                await route.fulfill({
+                    status: response.status(),
+                    headers: response.headers(),
+                    body: await response.body()
+                });
             }
         });
     }
@@ -397,8 +404,9 @@ export class ResponseModifier {
     ): Promise<void> {
         await this.modifyResponse(pattern, async (route, response) => {
             await route.fulfill({
-                response,
-                status: newStatusCode
+                status: newStatusCode,
+                headers: response.headers(),
+                body: await response.body()
             });
 
             this.recordModification({

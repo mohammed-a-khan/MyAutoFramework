@@ -344,10 +344,10 @@ export class DatabaseContext {
                 duration: Date.now() - startTime,
                 connectionName: this.activeConnectionName,
                 success: true,
-                executionPlan,
+                ...(executionPlan ? { executionPlan } : {}),
                 metadata: {
                     rowsExamined: result.rowCount,
-                    indexUsed: executionPlan?.includes('INDEX') || executionPlan?.includes('index')
+                    ...(executionPlan ? { indexUsed: executionPlan.includes('INDEX') || executionPlan.includes('index') } : {})
                 }
             };
             if (params) {
@@ -383,8 +383,9 @@ export class DatabaseContext {
     getLastExecutionPlan(): string | undefined {
         const history = this.getQueryHistory();
         for (let i = history.length - 1; i >= 0; i--) {
-            if (history[i].executionPlan) {
-                return history[i].executionPlan;
+            const entry = history[i];
+            if (entry?.executionPlan) {
+                return entry.executionPlan;
             }
         }
         return undefined;

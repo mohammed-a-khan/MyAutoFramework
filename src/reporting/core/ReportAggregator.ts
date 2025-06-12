@@ -182,7 +182,21 @@ export class ReportAggregator {
                 failureRateTrend: 0,
                 lastExecutions: []
             },
-            statistics
+            statistics,
+            scenarios: executionResult.scenarios.map(scenario => ({
+                scenarioId: scenario.scenarioId,
+                name: scenario.scenario,
+                status: scenario.status,
+                duration: scenario.duration || 0,
+                retryCount: scenario.retryCount || 0,
+                feature: scenario.feature,
+                tags: scenario.tags || [],
+                stepCount: scenario.steps?.length || 0,
+                passedSteps: scenario.steps?.filter(s => s.status === 'passed').length || 0,
+                failedSteps: scenario.steps?.filter(s => s.status === 'failed').length || 0
+            })),
+            features: [],
+            environment: executionResult.metadata?.['environment'] || 'default'
         };
     }
 

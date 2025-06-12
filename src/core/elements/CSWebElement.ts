@@ -75,6 +75,15 @@ export class CSWebElement {
     return Date.now() - this.lastResolvedAt.getTime() < this.cacheValidityMs;
   }
 
+  async getLocator(): Promise<Locator> {
+    return await this.resolve();
+  }
+
+  async elementHandle(): Promise<ElementHandle | null> {
+    const locator = await this.resolve();
+    return await locator.elementHandle();
+  }
+
   private async logAction(action: string, parameters: any[], result: 'success' | 'failure', error?: Error): Promise<void> {
     const record: ActionRecord = {
       id: `${this.elementId}_${Date.now()}`,
@@ -870,14 +879,6 @@ export class CSWebElement {
     }
   }
 
-  async elementHandle(): Promise<ElementHandle | null> {
-    try {
-      const locator = await this.resolve();
-      return await locator.elementHandle();
-    } catch (error) {
-      return null;
-    }
-  }
 
   async getText(): Promise<string> {
     try {

@@ -1,4 +1,4 @@
-import { Request, Response, Route, WebSocket } from 'playwright';
+import { Request, Route, WebSocket, APIResponse } from 'playwright';
 
 // URL Pattern matching
 export interface URLPattern {
@@ -68,7 +68,7 @@ export interface RequestHandler {
 
 // Response handler function
 export interface ResponseHandler {
-    (route: Route, response: Response): Promise<void>;
+    (route: Route, response: APIResponse): Promise<void>;
 }
 
 // Body transformer function

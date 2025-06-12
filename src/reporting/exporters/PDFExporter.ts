@@ -63,7 +63,7 @@ export class PDFExporter {
   async export(
     reportData: ReportData,
     htmlContent: string,
-    options: PDFOptions = {}
+    options: PDFOptions = { format: ExportFormat.PDF }
   ): Promise<ExportResult> {
     const exportId = crypto.randomUUID();
     const startTime = Date.now();
@@ -2436,7 +2436,7 @@ export class PDFExporter {
    */
   async exportBatch(
     reports: Array<{ data: ReportData; html: string; name?: string }>,
-    options: PDFOptions = {}
+    options: PDFOptions = { format: ExportFormat.PDF }
   ): Promise<ExportResult> {
     const batchId = crypto.randomUUID();
     // const _startTime = Date.now();
@@ -2968,7 +2968,7 @@ export class PDFExporter {
     options: PDFOptions & {
       onProgress?: (progress: number, status: string) => void;
       onError?: (error: Error) => void;
-    } = {}
+    } = { format: ExportFormat.PDF }
   ): Promise<ExportResult> {
     const { onProgress, onError, ...pdfOptions } = options;
     

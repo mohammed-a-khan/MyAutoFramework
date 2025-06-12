@@ -13,7 +13,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I click {string}')
     @CSBDDStepDef('user clicks on {string}')
     async clickElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Click element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('click_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -22,9 +23,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             // Wait for any navigation or changes
             await this.waitForStability();
             
-            ActionLogger.logSuccess('Element clicked', { element: elementDescription });
+            await actionLogger.logAction('element_clicked', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Click failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'click', element: elementDescription });
             throw new Error(`Failed to click "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -32,7 +33,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user double clicks {string}')
     @CSBDDStepDef('I double click {string}')
     async doubleClickElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Double click element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('double_click_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -40,9 +42,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             
             await this.waitForStability();
             
-            ActionLogger.logSuccess('Element double clicked', { element: elementDescription });
+            await actionLogger.logAction('element_double_clicked', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Double click failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'double_click', element: elementDescription });
             throw new Error(`Failed to double click "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -50,7 +52,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user right clicks {string}')
     @CSBDDStepDef('I right click {string}')
     async rightClickElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Right click element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('right_click_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -58,9 +61,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             
             await this.waitForStability();
             
-            ActionLogger.logSuccess('Element right clicked', { element: elementDescription });
+            await actionLogger.logAction('element_right_clicked', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Right click failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'right_click', element: elementDescription });
             throw new Error(`Failed to right click "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -69,7 +72,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I type {string} in {string}')
     @CSBDDStepDef('user enters {string} in {string}')
     async typeInElement(text: string, elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Type in element', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('type_in_element', { 
             text: this.maskSensitiveData(text), 
             element: elementDescription 
         });
@@ -86,12 +90,13 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
                 delay: ConfigurationManager.getInt('TYPE_DELAY', 0)
             });
             
-            ActionLogger.logSuccess('Text typed', { 
+            await actionLogger.logAction('text_typed', { 
                 element: elementDescription,
-                textLength: text.length
+                textLength: text.length,
+                success: true
             });
         } catch (error) {
-            ActionLogger.logError('Type failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'type', element: elementDescription });
             throw new Error(`Failed to type in "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -99,7 +104,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user fills {string} with {string}')
     @CSBDDStepDef('I fill {string} with {string}')
     async fillElement(elementDescription: string, text: string): Promise<void> {
-        ActionLogger.logStep('Fill element', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('fill_element', { 
             element: elementDescription,
             text: this.maskSensitiveData(text)
         });
@@ -108,12 +114,13 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             const element = await this.findElement(elementDescription);
             await element.fill(text);
             
-            ActionLogger.logSuccess('Element filled', { 
+            await actionLogger.logAction('element_filled', { 
                 element: elementDescription,
-                textLength: text.length
+                textLength: text.length,
+                success: true
             });
         } catch (error) {
-            ActionLogger.logError('Fill failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'fill', element: elementDescription });
             throw new Error(`Failed to fill "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -121,15 +128,16 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user clears {string}')
     @CSBDDStepDef('I clear {string}')
     async clearElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Clear element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('clear_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.clear();
             
-            ActionLogger.logSuccess('Element cleared', { element: elementDescription });
+            await actionLogger.logAction('element_cleared', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Clear failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'clear', element: elementDescription });
             throw new Error(`Failed to clear "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -138,7 +146,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I select {string} from {string}')
     @CSBDDStepDef('user chooses {string} from {string}')
     async selectOption(optionValue: string, elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Select option', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('select_option', { 
             option: optionValue,
             element: elementDescription 
         });
@@ -147,12 +156,13 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             const element = await this.findElement(elementDescription);
             await element.selectOption(optionValue);
             
-            ActionLogger.logSuccess('Option selected', { 
+            await actionLogger.logAction('option_selected', { 
                 option: optionValue,
-                element: elementDescription 
+                element: elementDescription,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Select failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'select', element: elementDescription, option: optionValue });
             throw new Error(`Failed to select "${optionValue}" from "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -160,23 +170,25 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user selects multiple options from {string}:')
     @CSBDDStepDef('I select multiple options from {string}:')
     async selectMultipleOptions(elementDescription: string, dataTable: DataTable): Promise<void> {
-        ActionLogger.logStep('Select multiple options', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('select_multiple_options', { 
             element: elementDescription,
             optionCount: dataTable.raw().length 
         });
         
         try {
             const element = await this.findElement(elementDescription);
-            const options = dataTable.raw().map(row => row[0]);
+            const options = dataTable.raw().map(row => row[0]).filter((opt): opt is string => opt !== undefined);
             
             await element.selectOption(options);
             
-            ActionLogger.logSuccess('Multiple options selected', { 
+            await actionLogger.logAction('multiple_options_selected', { 
                 element: elementDescription,
-                options 
+                options,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Multi-select failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'multi_select', element: elementDescription });
             throw new Error(`Failed to select multiple options from "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -184,7 +196,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user checks {string}')
     @CSBDDStepDef('I check {string}')
     async checkElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Check element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('check_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -192,12 +205,12 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             // Only check if not already checked
             if (!await element.isChecked()) {
                 await element.check();
-                ActionLogger.logSuccess('Element checked', { element: elementDescription });
+                await actionLogger.logAction('element_checked', { element: elementDescription, success: true });
             } else {
-                ActionLogger.logInfo('Element already checked', { element: elementDescription });
+                await actionLogger.logAction('element_already_checked', { element: elementDescription, info: true });
             }
         } catch (error) {
-            ActionLogger.logError('Check failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'check', element: elementDescription });
             throw new Error(`Failed to check "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -205,7 +218,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user unchecks {string}')
     @CSBDDStepDef('I uncheck {string}')
     async uncheckElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Uncheck element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('uncheck_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -213,12 +227,12 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             // Only uncheck if already checked
             if (await element.isChecked()) {
                 await element.uncheck();
-                ActionLogger.logSuccess('Element unchecked', { element: elementDescription });
+                await actionLogger.logAction('element_unchecked', { element: elementDescription, success: true });
             } else {
-                ActionLogger.logInfo('Element already unchecked', { element: elementDescription });
+                await actionLogger.logAction('element_already_unchecked', { element: elementDescription, info: true });
             }
         } catch (error) {
-            ActionLogger.logError('Uncheck failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'uncheck', element: elementDescription });
             throw new Error(`Failed to uncheck "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -227,7 +241,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I hover over {string}')
     @CSBDDStepDef('user moves mouse over {string}')
     async hoverElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Hover over element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('hover_over_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -236,9 +251,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             // Wait for any hover effects
             await this.page.waitForTimeout(ConfigurationManager.getInt('HOVER_DELAY', 100));
             
-            ActionLogger.logSuccess('Element hovered', { element: elementDescription });
+            await actionLogger.logAction('element_hovered', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Hover failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'hover', element: elementDescription });
             throw new Error(`Failed to hover over "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -246,15 +261,16 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user focuses on {string}')
     @CSBDDStepDef('I focus on {string}')
     async focusElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Focus element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('focus_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.focus();
             
-            ActionLogger.logSuccess('Element focused', { element: elementDescription });
+            await actionLogger.logAction('element_focused', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Focus failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'focus', element: elementDescription });
             throw new Error(`Failed to focus "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -262,15 +278,16 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user blurs {string}')
     @CSBDDStepDef('I blur {string}')
     async blurElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Blur element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('blur_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.blur();
             
-            ActionLogger.logSuccess('Element blurred', { element: elementDescription });
+            await actionLogger.logAction('element_blurred', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Blur failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'blur', element: elementDescription });
             throw new Error(`Failed to blur "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -279,14 +296,15 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I press {string} key')
     @CSBDDStepDef('user presses {string}')
     async pressKey(key: string): Promise<void> {
-        ActionLogger.logStep('Press key', { key });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('press_key', { key });
         
         try {
             await this.page.keyboard.press(key);
             
-            ActionLogger.logSuccess('Key pressed', { key });
+            await actionLogger.logAction('key_pressed', { key, success: true });
         } catch (error) {
-            ActionLogger.logError('Key press failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'press_key', key });
             throw new Error(`Failed to press key "${key}": ${(error as Error).message}`);
         }
     }
@@ -294,15 +312,16 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user presses {string} key in {string}')
     @CSBDDStepDef('I press {string} key in {string}')
     async pressKeyInElement(key: string, elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Press key in element', { key, element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('press_key_in_element', { key, element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.press(key);
             
-            ActionLogger.logSuccess('Key pressed in element', { key, element: elementDescription });
+            await actionLogger.logAction('key_pressed_in_element', { key, element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Key press in element failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'press_key_in_element', key, element: elementDescription });
             throw new Error(`Failed to press "${key}" in "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -310,7 +329,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user uploads file {string} to {string}')
     @CSBDDStepDef('I upload file {string} to {string}')
     async uploadFile(filePath: string, elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Upload file', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('upload_file', { 
             file: filePath,
             element: elementDescription 
         });
@@ -323,12 +343,13 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             
             await element.upload(resolvedPath);
             
-            ActionLogger.logSuccess('File uploaded', { 
+            await actionLogger.logAction('file_uploaded', { 
                 file: resolvedPath,
-                element: elementDescription 
+                element: elementDescription,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Upload failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'upload', element: elementDescription, file: filePath });
             throw new Error(`Failed to upload file to "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -336,23 +357,25 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user uploads multiple files to {string}:')
     @CSBDDStepDef('I upload multiple files to {string}:')
     async uploadMultipleFiles(elementDescription: string, dataTable: DataTable): Promise<void> {
-        ActionLogger.logStep('Upload multiple files', { 
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('upload_multiple_files', { 
             element: elementDescription,
             fileCount: dataTable.raw().length 
         });
         
         try {
             const element = await this.findElement(elementDescription);
-            const filePaths = dataTable.raw().map(row => this.resolveFilePath(row[0]));
+            const filePaths = dataTable.raw().map(row => this.resolveFilePath(row[0] || ''));
             
             await element.upload(filePaths);
             
-            ActionLogger.logSuccess('Multiple files uploaded', { 
+            await actionLogger.logAction('multiple_files_uploaded', { 
                 element: elementDescription,
-                files: filePaths 
+                files: filePaths,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Multi-upload failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'multi_upload', element: elementDescription });
             throw new Error(`Failed to upload multiple files to "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -360,7 +383,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user scrolls to {string}')
     @CSBDDStepDef('I scroll to {string}')
     async scrollToElement(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Scroll to element', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('scroll_to_element', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -369,9 +393,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
             // Wait for scroll animation
             await this.page.waitForTimeout(ConfigurationManager.getInt('SCROLL_DELAY', 300));
             
-            ActionLogger.logSuccess('Scrolled to element', { element: elementDescription });
+            await actionLogger.logAction('scrolled_to_element', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Scroll failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'scroll', element: elementDescription });
             throw new Error(`Failed to scroll to "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -379,15 +403,16 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user selects all text in {string}')
     @CSBDDStepDef('I select all text in {string}')
     async selectAllText(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Select all text', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('select_all_text', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
             await element.selectText();
             
-            ActionLogger.logSuccess('Text selected', { element: elementDescription });
+            await actionLogger.logAction('text_selected', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Select text failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'select_text', element: elementDescription });
             throw new Error(`Failed to select text in "${elementDescription}": ${(error as Error).message}`);
         }
     }
@@ -395,7 +420,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user waits for {string} to be visible')
     @CSBDDStepDef('I wait for {string} to be visible')
     async waitForVisible(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Wait for element visible', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('wait_for_element_visible', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -404,9 +430,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
                 timeout: ConfigurationManager.getInt('ELEMENT_TIMEOUT', 30000)
             });
             
-            ActionLogger.logSuccess('Element is visible', { element: elementDescription });
+            await actionLogger.logAction('element_is_visible', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Wait for visible failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'wait_for_visible', element: elementDescription });
             throw new Error(`Element "${elementDescription}" did not become visible: ${(error as Error).message}`);
         }
     }
@@ -414,7 +440,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user waits for {string} to be hidden')
     @CSBDDStepDef('I wait for {string} to be hidden')
     async waitForHidden(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Wait for element hidden', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('wait_for_element_hidden', { element: elementDescription });
         
         try {
             const element = await this.findElement(elementDescription);
@@ -423,9 +450,9 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
                 timeout: ConfigurationManager.getInt('ELEMENT_TIMEOUT', 30000)
             });
             
-            ActionLogger.logSuccess('Element is hidden', { element: elementDescription });
+            await actionLogger.logAction('element_is_hidden', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Wait for hidden failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'wait_for_hidden', element: elementDescription });
             throw new Error(`Element "${elementDescription}" did not become hidden: ${(error as Error).message}`);
         }
     }
@@ -433,7 +460,8 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user waits for {string} to be enabled')
     @CSBDDStepDef('I wait for {string} to be enabled')
     async waitForEnabled(elementDescription: string): Promise<void> {
-        ActionLogger.logStep('Wait for element enabled', { element: elementDescription });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('wait_for_element_enabled', { element: elementDescription });
         
         try {
             const timeout = ConfigurationManager.getInt('ELEMENT_TIMEOUT', 30000);
@@ -448,16 +476,16 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
                 { timeout }
             );
             
-            ActionLogger.logSuccess('Element is enabled', { element: elementDescription });
+            await actionLogger.logAction('element_is_enabled', { element: elementDescription, success: true });
         } catch (error) {
-            ActionLogger.logError('Wait for enabled failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'wait_for_enabled', element: elementDescription });
             throw new Error(`Element "${elementDescription}" did not become enabled: ${(error as Error).message}`);
         }
     }
 
     private async findElement(description: string): Promise<CSWebElement> {
         // Check if it's a stored element reference
-        const storedElement = this.context.get<CSWebElement>(`element_${description}`);
+        const storedElement = this.context.retrieve<CSWebElement>(`element_${description}`);
         if (storedElement) {
             return storedElement;
         }
@@ -488,7 +516,7 @@ export class InteractionSteps extends CSBDDBaseStepDefinition {
     }
 
     private maskSensitiveData(text: string): string {
-        const sensitivePatterns = ConfigurationManager.getArray('SENSITIVE_DATA_PATTERNS', []);
+        const sensitivePatterns = ConfigurationManager.getArray('SENSITIVE_DATA_PATTERNS') || [];
         let maskedText = text;
         
         for (const pattern of sensitivePatterns) {

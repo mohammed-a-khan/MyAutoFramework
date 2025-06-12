@@ -14,7 +14,7 @@ export interface StepDefinitionOptions {
  * @param options - Optional step configuration
  */
 export function CSBDDStepDef(pattern: string | RegExp, options?: StepDefinitionOptions) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+  return function (target: any, propertyKey: string | symbol, descriptor: any): any {
     const originalMethod = descriptor.value;
     
     if (typeof originalMethod !== 'function') {
@@ -28,12 +28,12 @@ export function CSBDDStepDef(pattern: string | RegExp, options?: StepDefinitionO
     const stepDefinition = {
       pattern: pattern,
       method: originalMethod,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       parameterCount: paramCount,
       timeout: options?.timeout,
       retry: options?.retry || 0,
-      location: `${target.constructor.name}.${propertyKey}`,
+      location: `${target.constructor.name}.${String(propertyKey)}`,
       isAsync: isAsyncFunction(originalMethod)
     };
     
@@ -43,7 +43,7 @@ export function CSBDDStepDef(pattern: string | RegExp, options?: StepDefinitionO
       line: 0, // Line number not available at runtime
       timeout: options?.timeout,
       className: target.constructor.name,
-      methodName: propertyKey
+      methodName: String(propertyKey)
     };
     
     // Register the step definition
@@ -51,12 +51,7 @@ export function CSBDDStepDef(pattern: string | RegExp, options?: StepDefinitionO
     
     // Log registration
     Logger.getInstance().debug(`Registered step definition: ${pattern.toString()} -> ${stepDefinition.location}`);
-    ActionLogger.logStepDefinitionLoading('registered', {
-      pattern: pattern.toString(),
-      location: stepDefinition.location,
-      className: target.constructor.name,
-      methodName: propertyKey
-    });
+    // ActionLogger instance will be used at runtime, not during decoration
     
     // Wrap the method to add error handling and logging
     descriptor.value = async function(...args: any[]) {
@@ -64,18 +59,20 @@ export function CSBDDStepDef(pattern: string | RegExp, options?: StepDefinitionO
       const startTime = Date.now();
       
       try {
-        ActionLogger.logStepStart(stepText, stepDefinition.location);
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('step_start', { stepText, location: stepDefinition.location });
         
         // Bind 'this' context properly
         const result = await originalMethod.apply(this, args);
         
         const duration = Date.now() - startTime;
-        ActionLogger.logStepPass(stepText, duration);
+        await actionLogger.logAction('step_pass', { stepText, duration });
         
         return result;
       } catch (error) {
         const duration = Date.now() - startTime;
-        ActionLogger.logStepFail(stepText, error instanceof Error ? error : new Error(String(error)), duration);
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logError(error instanceof Error ? error : new Error(String(error)), { stepText, duration });
         throw error;
       }
     };
@@ -92,7 +89,7 @@ export function Before(options?: { tags?: string; order?: number; timeout?: numb
     const hook = {
       type: 'before' as const,
       method: descriptor.value,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       tags: options?.tags,
       order: options?.order || 0,
@@ -132,7 +129,7 @@ export function After(options?: { tags?: string; order?: number; timeout?: numbe
     const hook = {
       type: 'after' as const,
       method: descriptor.value,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       tags: options?.tags,
       order: options?.order || 0,
@@ -172,7 +169,7 @@ export function BeforeStep(options?: { tags?: string; order?: number; timeout?: 
     const hook = {
       type: 'beforeStep' as const,
       method: descriptor.value,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       tags: options?.tags,
       order: options?.order || 0,
@@ -212,7 +209,7 @@ export function AfterStep(options?: { tags?: string; order?: number; timeout?: n
     const hook = {
       type: 'afterStep' as const,
       method: descriptor.value,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       tags: options?.tags,
       order: options?.order || 0,
@@ -252,7 +249,7 @@ export function BeforeAll(options?: { order?: number; timeout?: number }) {
     const hook = {
       type: 'beforeAll' as const,
       method: descriptor.value,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       order: options?.order || 0,
       timeout: options?.timeout,
@@ -288,7 +285,7 @@ export function AfterAll(options?: { order?: number; timeout?: number }) {
     const hook = {
       type: 'afterAll' as const,
       method: descriptor.value,
-      methodName: propertyKey,
+      methodName: String(propertyKey),
       className: target.constructor.name,
       order: options?.order || 0,
       timeout: options?.timeout,

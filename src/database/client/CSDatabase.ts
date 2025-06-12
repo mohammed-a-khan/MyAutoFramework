@@ -1,6 +1,16 @@
 // src/database/client/CSDatabase.ts
 
-import { DatabaseConfig, DatabaseConnection, ResultSet, QueryOptions, DatabaseType, PreparedStatement, BulkOperation, DatabaseMetadata, TransactionOptions } from '../types/database.types';
+import {
+  DatabaseConfig,
+  DatabaseConnection,
+  ResultSet,
+  QueryOptions,
+  DatabaseType,
+  PreparedStatement,
+  BulkOperation,
+  DatabaseMetadata,
+  TransactionOptions,
+} from '../types/database.types';
 import { ConnectionManager } from './ConnectionManager';
 import { QueryExecutor } from './QueryExecutor';
 import { TransactionManager } from './TransactionManager';
@@ -71,25 +81,27 @@ export class CSDatabase {
     try {
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('connect', this.connectionAlias, 0);
-      
+
       const connection = await this.connectionManager.connect(this.config);
       this.connected = true;
-      
+
       // Set session parameters if configured
       if (this.config.sessionParameters) {
         await this.setSessionParameters(connection, this.config.sessionParameters);
       }
-      
+
       await actionLogger.logDatabase('connected', this.connectionAlias, 0, undefined, {
         type: this.config.type,
         database: this.config.database,
-        host: this.config.host
+        host: this.config.host,
       });
-      
+
       return connection;
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('connectError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('connectError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'CONNECTION_FAILED');
     }
   }
@@ -107,33 +119,119 @@ export class CSDatabase {
   async executeWithPlan(sql: string, params?: any[]): Promise<ResultSet> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('queryWithPlan', sql, 0, undefined, { alias: this.connectionAlias, params });
       const startTime = Date.now();
-      
-      // Use the context's executeWithPlan method
-      const result = await this.queryContext.executeWithPlan(sql, params);
-      
+
+      // Get the current connection
+      const connection = await this.connectionManager.getConnection();
+
+      // First, get the execution plan
+      let executionPlan: string = '';
+      const dbType = this.config.type.toLowerCase();
+
+      try {
+        switch (dbType) {
+          case 'mysql':
+            const mysqlPlan = await this.queryExecutor.execute(connection, `EXPLAIN ${sql}`, params);
+            executionPlan = this.formatExecutionPlan(mysqlPlan);
+            break;
+          case 'postgresql':
+            const pgPlan = await this.queryExecutor.execute(connection, `EXPLAIN ANALYZE ${sql}`, params);
+            executionPlan = this.formatExecutionPlan(pgPlan);
+            break;
+          case 'sqlite':
+            const sqlitePlan = await this.queryExecutor.execute(connection, `EXPLAIN QUERY PLAN ${sql}`, params);
+            executionPlan = this.formatExecutionPlan(sqlitePlan);
+            break;
+          case 'mssql':
+          case 'sqlserver':
+            await this.queryExecutor.execute(connection, 'SET SHOWPLAN_TEXT ON');
+            const mssqlPlan = await this.queryExecutor.execute(connection, sql, params);
+            executionPlan = this.formatExecutionPlan(mssqlPlan);
+            await this.queryExecutor.execute(connection, 'SET SHOWPLAN_TEXT OFF');
+            break;
+          case 'oracle':
+            await this.queryExecutor.execute(connection, `EXPLAIN PLAN FOR ${sql}`, params);
+            const oraclePlan = await this.queryExecutor.execute(
+              connection,
+              'SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY())',
+            );
+            executionPlan = this.formatExecutionPlan(oraclePlan);
+            break;
+          default:
+            // Try generic EXPLAIN
+            const defaultPlan = await this.queryExecutor.execute(connection, `EXPLAIN ${sql}`, params);
+            executionPlan = this.formatExecutionPlan(defaultPlan);
+        }
+      } catch (planError) {
+        const logger = Logger.getInstance();
+        logger.warn(`Failed to get execution plan: ${(planError as Error).message}`);
+      }
+
+      // Execute the actual query
+      const result = await this.queryExecutor.execute(connection, sql, params);
+
       const duration = Date.now() - startTime;
-      await actionLogger.logDatabase('queryWithPlanResult', sql, duration, result.rowCount, { 
+      await actionLogger.logDatabase('queryWithPlanResult', sql, duration, result.rowCount, {
         alias: this.connectionAlias,
-        executionPlan: this.queryContext.getLastExecutionPlan()
+        executionPlan,
       });
-      
+
+      // Store execution plan in result metadata
+      if (result['metadata']) {
+        result['metadata'].executionPlan = executionPlan;
+      } else {
+        result['metadata'] = { executionPlan };
+      }
+
       // Store for chaining
       this.storeResultForChaining(result);
-      
+
       return result;
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('queryWithPlanError', this.connectionAlias, 0, undefined, { 
-        error: (error as Error).message, 
-        sql, 
-        params 
+      await actionLogger.logDatabase('queryWithPlanError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        sql,
+        params,
       });
       throw this.enhanceError(error as Error, 'QUERY_WITH_PLAN_FAILED', { sql, params });
     }
+  }
+
+  /**
+   * Format execution plan from query result
+   */
+  private formatExecutionPlan(result: ResultSet): string {
+    if (!result || !result.rows || result.rows.length === 0) {
+      return 'No execution plan available';
+    }
+
+    let plan = '';
+
+    if (Array.isArray(result.rows)) {
+      result.rows.forEach((row: any, index: number) => {
+        if (typeof row === 'object') {
+          // Handle different column names used by different databases
+          const planText =
+            row['QUERY PLAN'] ||
+            row['QueryPlan'] ||
+            row['Plan'] ||
+            row['EXPLAIN'] ||
+            row['Extra'] ||
+            row['StmtText'] ||
+            row['PLAN_TABLE_OUTPUT'] ||
+            JSON.stringify(row, null, 2);
+          plan += `${index > 0 ? '\n' : ''}${planText}`;
+        } else {
+          plan += `${index > 0 ? '\n' : ''}${row}`;
+        }
+      });
+    }
+
+    return plan || 'Execution plan format not recognized';
   }
 
   /**
@@ -142,25 +240,29 @@ export class CSDatabase {
   async query<T = any>(sql: string, params?: any[], options?: QueryOptions): Promise<ResultSet> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('query', sql, 0, undefined, { alias: this.connectionAlias, params });
       const startTime = Date.now();
-      
+
       const connection = await this.connectionManager.getConnection();
       const rawResult = await this.queryExecutor.execute(connection, sql, params, options);
       const result = this.resultSetParser.parse<T>(rawResult, options);
-      
+
       const duration = Date.now() - startTime;
       await actionLogger.logDatabase('queryResult', sql, duration, result.rowCount, { alias: this.connectionAlias });
-      
+
       // Store for chaining
       this.storeResultForChaining(result);
-      
+
       return result;
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('queryError', this.connectionAlias, 0, undefined, { error: (error as Error).message, sql, params });
+      await actionLogger.logDatabase('queryError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        sql,
+        params,
+      });
       throw this.enhanceError(error as Error, 'QUERY_FAILED', { sql, params });
     }
   }
@@ -173,7 +275,7 @@ export class CSDatabase {
     if (!sql) {
       throw new Error(`Predefined query '${queryName}' not found in configuration`);
     }
-    
+
     const actionLogger = ActionLogger.getInstance();
     await actionLogger.logDatabase('queryByName', this.connectionAlias, 0, undefined, { queryName });
     return this.query(sql, params, options);
@@ -186,10 +288,10 @@ export class CSDatabase {
     try {
       const fs = await import('fs/promises');
       const path = await import('path');
-      
+
       const resolvedPath = path.resolve(process.cwd(), filePath);
       const sql = await fs.readFile(resolvedPath, 'utf-8');
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('queryFromFile', this.connectionAlias, 0, undefined, { filePath });
       return this.query(sql, params, options);
@@ -204,20 +306,23 @@ export class CSDatabase {
   async executeStoredProcedure(procedureName: string, params?: any[], options?: QueryOptions): Promise<ResultSet> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('storedProcedure', this.connectionAlias, 0, undefined, { procedureName, params });
-      
+
       const connection = await this.connectionManager.getConnection();
       const rawResult = await this.queryExecutor.executeStoredProcedure(connection, procedureName, params, options);
       const result = this.resultSetParser.parse(rawResult, options);
-      
+
       this.storeResultForChaining(result);
-      
+
       return result;
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('storedProcedureError', this.connectionAlias, 0, undefined, { error: (error as Error).message, procedureName });
+      await actionLogger.logDatabase('storedProcedureError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        procedureName,
+      });
       throw this.enhanceError(error as Error, 'STORED_PROCEDURE_FAILED', { procedureName });
     }
   }
@@ -228,17 +333,20 @@ export class CSDatabase {
   async executeFunction(functionName: string, params?: any[], options?: QueryOptions): Promise<any> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('function', this.connectionAlias, 0, undefined, { functionName, params });
-      
+
       const connection = await this.connectionManager.getConnection();
       const result = await this.queryExecutor.executeFunction(connection, functionName, params, options);
-      
+
       return result;
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('functionError', this.connectionAlias, 0, undefined, { error: (error as Error).message, functionName });
+      await actionLogger.logDatabase('functionError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        functionName,
+      });
       throw this.enhanceError(error as Error, 'FUNCTION_FAILED', { functionName });
     }
   }
@@ -249,16 +357,17 @@ export class CSDatabase {
   async beginTransaction(options?: TransactionOptions): Promise<void> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('beginTransaction', this.connectionAlias, 0, undefined, options as any);
-      
+
       const connection = await this.connectionManager.getConnection();
       await this.transactionManager.begin(connection, options);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('beginTransactionError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('beginTransactionError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'TRANSACTION_BEGIN_FAILED');
     }
   }
@@ -269,16 +378,17 @@ export class CSDatabase {
   async commitTransaction(): Promise<void> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('commitTransaction', this.connectionAlias, 0);
-      
+
       const connection = await this.connectionManager.getConnection();
       await this.transactionManager.commit(connection);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('commitTransactionError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('commitTransactionError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'TRANSACTION_COMMIT_FAILED');
     }
   }
@@ -289,16 +399,17 @@ export class CSDatabase {
   async rollbackTransaction(savepoint?: string): Promise<void> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('rollbackTransaction', this.connectionAlias, 0, undefined, { savepoint });
-      
+
       const connection = await this.connectionManager.getConnection();
       await this.transactionManager.rollback(connection, savepoint);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('rollbackTransactionError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('rollbackTransactionError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'TRANSACTION_ROLLBACK_FAILED');
     }
   }
@@ -309,16 +420,17 @@ export class CSDatabase {
   async createSavepoint(name: string): Promise<void> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('createSavepoint', this.connectionAlias, 0, undefined, { name });
-      
+
       const connection = await this.connectionManager.getConnection();
       await this.transactionManager.savepoint(connection, name);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('createSavepointError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('createSavepointError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'SAVEPOINT_CREATE_FAILED');
     }
   }
@@ -329,37 +441,37 @@ export class CSDatabase {
   async executeBatch(operations: BulkOperation[]): Promise<ResultSet[]> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('executeBatch', this.connectionAlias, 0, undefined, { count: operations.length });
       const startTime = Date.now();
-      
+
       const connection = await this.connectionManager.getConnection();
       const results: ResultSet[] = [];
-      
+
       // Execute in transaction for consistency
       await this.beginTransaction();
-      
+
       try {
         for (const operation of operations) {
           const rawResult = await this.queryExecutor.execute(
             connection,
             operation.sql,
             operation.params,
-            operation.options
+            operation.options,
           );
           results.push(this.resultSetParser.parse(rawResult, operation.options));
         }
-        
+
         await this.commitTransaction();
-        
+
         const duration = Date.now() - startTime;
         const actionLogger2 = ActionLogger.getInstance();
-        await actionLogger2.logDatabase('batchCompleted', this.connectionAlias, duration, operations.length, { 
+        await actionLogger2.logDatabase('batchCompleted', this.connectionAlias, duration, operations.length, {
           count: operations.length,
-          duration 
+          duration,
         });
-        
+
         return results;
       } catch (error) {
         await this.rollbackTransaction();
@@ -367,7 +479,9 @@ export class CSDatabase {
       }
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('executeBatchError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('executeBatchError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'BATCH_EXECUTION_FAILED');
     }
   }
@@ -378,36 +492,39 @@ export class CSDatabase {
   async bulkInsert(table: string, data: any[], options?: { batchSize?: number }): Promise<number> {
     try {
       this.validateConnection();
-      
+
       const batchSize = options?.batchSize || 1000;
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('bulkInsert', this.connectionAlias, 0, undefined, { 
-        table, 
+      await actionLogger.logDatabase('bulkInsert', this.connectionAlias, 0, undefined, {
+        table,
         rows: data.length,
-        batchSize 
+        batchSize,
       });
-      
+
       const connection = await this.connectionManager.getConnection();
       let totalInserted = 0;
-      
+
       // Process in batches
       for (let i = 0; i < data.length; i += batchSize) {
         const batch = data.slice(i, i + batchSize);
         const inserted = await this.adapter.bulkInsert(connection, table, batch);
         totalInserted += inserted;
-        
+
         const actionLogger2 = ActionLogger.getInstance();
         await actionLogger2.logDatabase('bulkInsertBatch', this.connectionAlias, 0, inserted, {
           batchNumber: Math.floor(i / batchSize) + 1,
           batchSize: batch.length,
-          inserted
+          inserted,
         });
       }
-      
+
       return totalInserted;
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('bulkInsertError', this.connectionAlias, 0, undefined, { error: (error as Error).message, table });
+      await actionLogger.logDatabase('bulkInsertError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        table,
+      });
       throw this.enhanceError(error as Error, 'BULK_INSERT_FAILED', { table });
     }
   }
@@ -418,16 +535,17 @@ export class CSDatabase {
   async prepare(sql: string): Promise<PreparedStatement> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('prepare', this.connectionAlias, 0, undefined, { sql });
-      
+
       const connection = await this.connectionManager.getConnection();
       return this.adapter.prepare(connection, sql);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('prepareError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('prepareError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'PREPARE_FAILED');
     }
   }
@@ -438,16 +556,17 @@ export class CSDatabase {
   async getMetadata(): Promise<DatabaseMetadata> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('getMetadata', this.connectionAlias, 0);
-      
+
       const connection = await this.connectionManager.getConnection();
       return this.adapter.getMetadata(connection);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('getMetadataError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('getMetadataError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'METADATA_FAILED');
     }
   }
@@ -458,16 +577,18 @@ export class CSDatabase {
   async getTableInfo(tableName: string): Promise<any> {
     try {
       this.validateConnection();
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('getTableInfo', this.connectionAlias, 0, undefined, { tableName });
-      
+
       const connection = await this.connectionManager.getConnection();
       return this.adapter.getTableInfo(connection, tableName);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('getTableInfoError', this.connectionAlias, 0, undefined, { error: (error as Error).message, tableName });
+      await actionLogger.logDatabase('getTableInfoError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        tableName,
+      });
       throw this.enhanceError(error as Error, 'TABLE_INFO_FAILED', { tableName });
     }
   }
@@ -475,16 +596,23 @@ export class CSDatabase {
   /**
    * Export query result
    */
-  async exportResult(result: ResultSet, format: 'csv' | 'json' | 'xml' | 'excel' | 'text', filePath: string): Promise<void> {
+  async exportResult(
+    result: ResultSet,
+    format: 'csv' | 'json' | 'xml' | 'excel' | 'text',
+    filePath: string,
+  ): Promise<void> {
     try {
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('exportResult', this.connectionAlias, 0, undefined, { format, filePath });
-      
+
       await this.resultSetParser.export(result, format, filePath);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('exportResultError', this.connectionAlias, 0, undefined, { error: (error as Error).message, format, filePath });
+      await actionLogger.logDatabase('exportResultError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        format,
+        filePath,
+      });
       throw this.enhanceError(error as Error, 'EXPORT_FAILED', { format, filePath });
     }
   }
@@ -492,17 +620,26 @@ export class CSDatabase {
   /**
    * Import data
    */
-  async importData(table: string, filePath: string, format: 'csv' | 'json' | 'xml' | 'excel', options?: any): Promise<number> {
+  async importData(
+    table: string,
+    filePath: string,
+    format: 'csv' | 'json' | 'xml' | 'excel',
+    options?: any,
+  ): Promise<number> {
     try {
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('importData', this.connectionAlias, 0, undefined, { table, format, filePath });
-      
+
       const data = await this.resultSetParser.import(filePath, format, options);
       return this.bulkInsert(table, data, options);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('importDataError', this.connectionAlias, 0, undefined, { error: (error as Error).message, table, format, filePath });
+      await actionLogger.logDatabase('importDataError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+        table,
+        format,
+        filePath,
+      });
       throw this.enhanceError(error as Error, 'IMPORT_FAILED', { table, format, filePath });
     }
   }
@@ -513,19 +650,20 @@ export class CSDatabase {
   async disconnect(): Promise<void> {
     try {
       if (!this.connected) return;
-      
+
       const actionLogger = ActionLogger.getInstance();
       await actionLogger.logDatabase('disconnect', this.connectionAlias, 0);
-      
+
       await this.connectionManager.disconnect();
       this.connected = false;
-      
+
       // Remove from instances
       CSDatabase.instances.delete(this.connectionAlias);
-      
     } catch (error) {
       const actionLogger = ActionLogger.getInstance();
-      await actionLogger.logDatabase('disconnectError', this.connectionAlias, 0, undefined, { error: (error as Error).message });
+      await actionLogger.logDatabase('disconnectError', this.connectionAlias, 0, undefined, {
+        error: (error as Error).message,
+      });
       throw this.enhanceError(error as Error, 'DISCONNECT_FAILED');
     }
   }
@@ -589,13 +727,13 @@ export class CSDatabase {
       connectionTimeout: ConfigurationManager.getInt(`DB_${alias.toUpperCase()}_CONNECTION_TIMEOUT`, 30000),
       queryTimeout: ConfigurationManager.getInt(`DB_${alias.toUpperCase()}_REQUEST_TIMEOUT`, 30000),
       poolSize: ConfigurationManager.getInt(`DB_${alias.toUpperCase()}_POOL_SIZE`, 10),
-      options: {}
+      options: {},
     };
 
     // Load additional options
     const optionsPrefix = `DB_${alias.toUpperCase()}_OPTION_`;
     const allKeys = ConfigurationManager.getAllKeys();
-    
+
     allKeys
       .filter(key => key.startsWith(optionsPrefix))
       .forEach(key => {
@@ -616,14 +754,17 @@ export class CSDatabase {
       host: '',
       port: 1433,
       database: '',
-      options: {}
+      options: {},
     };
 
     // Detect database type
     if (connectionString.toLowerCase().includes('mysql://')) {
       config.type = 'mysql';
       config.port = 3306;
-    } else if (connectionString.toLowerCase().includes('postgresql://') || connectionString.toLowerCase().includes('postgres://')) {
+    } else if (
+      connectionString.toLowerCase().includes('postgresql://') ||
+      connectionString.toLowerCase().includes('postgres://')
+    ) {
       config.type = 'postgresql';
       config.port = 5432;
     } else if (connectionString.toLowerCase().includes('mongodb://')) {
@@ -652,7 +793,7 @@ export class CSDatabase {
 
     const portMatch = connectionString.match(/(?:port)=(\d+)/i);
     if (portMatch && portMatch[1]) config.port = parseInt(portMatch[1]);
-    
+
     // Ensure username and password are strings
     if (!config.username) config.username = '';
     if (!config.password) config.password = '';
@@ -680,7 +821,7 @@ export class CSDatabase {
         const decrypted = encMatch[1];
         processed.connectionString = processed.connectionString.replace(
           `password=enc:${encMatch[1]}`,
-          `password=${decrypted}`
+          `password=${decrypted}`,
         );
       }
     }
@@ -717,7 +858,7 @@ export class CSDatabase {
     if (!this.connected) {
       throw new Error('Database not connected. Call connect() first.');
     }
-    
+
     if (!this.connectionManager.isHealthy()) {
       throw new Error('Database connection is not healthy. Reconnection may be required.');
     }
@@ -755,10 +896,11 @@ export class CSDatabase {
     (enhanced as any).originalError = error;
     (enhanced as any).database = this.connectionAlias;
     (enhanced as any).context = context;
-    
+
     // Add troubleshooting hints
     if (code === 'CONNECTION_FAILED') {
-      enhanced.message += '\n\nTroubleshooting:\n' +
+      enhanced.message +=
+        '\n\nTroubleshooting:\n' +
         '1. Check database server is running and accessible\n' +
         '2. Verify connection parameters (host, port, credentials)\n' +
         '3. Check firewall rules\n' +
@@ -769,7 +911,7 @@ export class CSDatabase {
         enhanced.message += '\nParameters: ' + JSON.stringify(context.params);
       }
     }
-    
+
     return enhanced;
   }
 

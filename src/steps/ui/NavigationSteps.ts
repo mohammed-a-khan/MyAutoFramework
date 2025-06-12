@@ -19,7 +19,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I navigate to {string}')
     @CSBDDStepDef('the user navigates to {string}')
     async navigateToUrl(url: string): Promise<void> {
-        ActionLogger.logStep('Navigate to URL', { url });
+        ActionLogger.logInfo('Navigate to URL', { url, type: 'navigation_step' });
         
         try {
             // Handle relative and absolute URLs
@@ -42,9 +42,10 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
             // Clear current page object as we've navigated
             this.currentPage = null;
 
-            ActionLogger.logSuccess('Navigation completed', { 
+            ActionLogger.logInfo('Navigation completed', { 
                 url: fullUrl, 
-                currentUrl: this.page.url() 
+                currentUrl: this.page.url(),
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Navigation failed', error as Error);
@@ -56,7 +57,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I navigate to {string} page')
     @CSBDDStepDef('the user navigates to {string} page')
     async navigateToPageByName(pageName: string): Promise<void> {
-        ActionLogger.logStep('Navigate to page by name', { pageName });
+        ActionLogger.logInfo('Navigate to page by name', { pageName, type: 'navigation_step' });
         
         try {
             // Get page URL from configuration
@@ -77,7 +78,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
             // Try to create page object if registered
             try {
                 this.currentPage = await PageFactory.createPageByName(pageName, this.page);
-                this.context.set('currentPage', this.currentPage);
+                this.context.store('currentPage', this.currentPage, 'scenario');
                 ActionLogger.logInfo(`Page object created for ${pageName}`);
             } catch (error) {
                 ActionLogger.logDebug(`No page object registered for ${pageName}`);
@@ -92,7 +93,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I refresh the page')
     @CSBDDStepDef('the page is refreshed')
     async refreshPage(): Promise<void> {
-        ActionLogger.logStep('Refresh page');
+        ActionLogger.logInfo('Refresh page', { type: 'navigation_step' });
         
         try {
             const currentUrl = this.page.url();
@@ -105,7 +106,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
             // Wait for page to be ready after refresh
             await this.page.waitForLoadState('domcontentloaded');
 
-            ActionLogger.logSuccess('Page refreshed', { url: currentUrl });
+            ActionLogger.logInfo('Page refreshed', { url: currentUrl, type: 'navigation_success' });
         } catch (error) {
             ActionLogger.logError('Page refresh failed', error as Error);
             throw new Error(`Failed to refresh page: ${(error as Error).message}`);
@@ -116,7 +117,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I go back')
     @CSBDDStepDef('the user navigates back')
     async goBack(): Promise<void> {
-        ActionLogger.logStep('Navigate back');
+        ActionLogger.logInfo('Navigate back', { type: 'navigation_step' });
         
         try {
             const currentUrl = this.page.url();
@@ -129,15 +130,16 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
             const newUrl = this.page.url();
             
             if (currentUrl === newUrl) {
-                ActionLogger.logWarning('Navigation back had no effect (possibly at first page in history)');
+                ActionLogger.logWarn('Navigation back had no effect (possibly at first page in history)');
             }
 
             // Clear current page object as we've navigated
             this.currentPage = null;
 
-            ActionLogger.logSuccess('Navigated back', { 
+            ActionLogger.logInfo('Navigated back', { 
                 from: currentUrl, 
-                to: newUrl 
+                to: newUrl,
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Navigate back failed', error as Error);
@@ -149,7 +151,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I go forward')
     @CSBDDStepDef('the user navigates forward')
     async goForward(): Promise<void> {
-        ActionLogger.logStep('Navigate forward');
+        ActionLogger.logInfo('Navigate forward', { type: 'navigation_step' });
         
         try {
             const currentUrl = this.page.url();
@@ -162,15 +164,16 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
             const newUrl = this.page.url();
             
             if (currentUrl === newUrl) {
-                ActionLogger.logWarning('Navigation forward had no effect (possibly at last page in history)');
+                ActionLogger.logWarn('Navigation forward had no effect (possibly at last page in history)');
             }
 
             // Clear current page object as we've navigated
             this.currentPage = null;
 
-            ActionLogger.logSuccess('Navigated forward', { 
+            ActionLogger.logInfo('Navigated forward', { 
                 from: currentUrl, 
-                to: newUrl 
+                to: newUrl,
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Navigate forward failed', error as Error);
@@ -182,7 +185,7 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I wait for navigation')
     @CSBDDStepDef('the navigation completes')
     async waitForNavigation(): Promise<void> {
-        ActionLogger.logStep('Wait for navigation');
+        ActionLogger.logInfo('Wait for navigation', { type: 'navigation_step' });
         
         try {
             await this.page.waitForNavigation({
@@ -190,8 +193,9 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
                 timeout: ConfigurationManager.getInt('NAVIGATION_TIMEOUT', 30000)
             });
 
-            ActionLogger.logSuccess('Navigation completed', { 
-                url: this.page.url() 
+            ActionLogger.logInfo('Navigation completed', { 
+                url: this.page.url(),
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Wait for navigation failed', error as Error);
@@ -203,15 +207,16 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I wait for page to load')
     @CSBDDStepDef('the page finishes loading')
     async waitForPageLoad(): Promise<void> {
-        ActionLogger.logStep('Wait for page load');
+        ActionLogger.logInfo('Wait for page load', { type: 'navigation_step' });
         
         try {
             await this.page.waitForLoadState('networkidle', {
                 timeout: ConfigurationManager.getInt('PAGE_LOAD_TIMEOUT', 30000)
             });
 
-            ActionLogger.logSuccess('Page loaded', { 
-                url: this.page.url() 
+            ActionLogger.logInfo('Page loaded', { 
+                url: this.page.url(),
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Wait for page load failed', error as Error);
@@ -222,13 +227,14 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user navigates to {string} in new tab')
     @CSBDDStepDef('I open {string} in new tab')
     async navigateToUrlInNewTab(url: string): Promise<void> {
-        ActionLogger.logStep('Navigate to URL in new tab', { url });
+        ActionLogger.logInfo('Navigate to URL in new tab', { url, type: 'navigation_step' });
         
         try {
             const fullUrl = this.resolveUrl(url);
             
             // Create new page (tab)
-            const newPage = await this.context.newPage();
+            const browserContext = this.context.getCurrentBrowserContext();
+            const newPage = await browserContext.newPage();
             
             // Navigate in new tab
             await newPage.goto(fullUrl, {
@@ -237,12 +243,13 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
             });
 
             // Switch context to new page
-            this.page = newPage;
-            this.context.set('currentPage', newPage);
+            this.context.setCurrentPage(newPage);
+            this.context.store('currentPage', newPage, 'scenario');
 
-            ActionLogger.logSuccess('Opened in new tab', { 
+            ActionLogger.logInfo('Opened in new tab', { 
                 url: fullUrl,
-                tabCount: this.context.pages().length
+                tabCount: this.context.getCurrentBrowserContext().pages().length,
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Navigate to URL in new tab failed', error as Error);
@@ -253,10 +260,11 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user closes current tab')
     @CSBDDStepDef('I close current tab')
     async closeCurrentTab(): Promise<void> {
-        ActionLogger.logStep('Close current tab');
+        ActionLogger.logInfo('Close current tab', { type: 'navigation_step' });
         
         try {
-            const pages = this.context.pages();
+            const browserContext = this.context.getCurrentBrowserContext();
+            const pages = browserContext.pages();
             
             if (pages.length <= 1) {
                 throw new Error('Cannot close the last tab');
@@ -267,11 +275,16 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
 
             // Switch to previous tab
             const newIndex = currentPageIndex > 0 ? currentPageIndex - 1 : 0;
-            this.page = pages[newIndex];
-            this.context.set('currentPage', this.page);
+            const newPage = pages[newIndex];
+            if (!newPage) {
+                throw new Error('Failed to get page reference');
+            }
+            this.context.setCurrentPage(newPage);
+            this.context.store('currentPage', newPage, 'scenario');
 
-            ActionLogger.logSuccess('Tab closed', { 
-                remainingTabs: pages.length - 1
+            ActionLogger.logInfo('Tab closed', { 
+                remainingTabs: pages.length - 1,
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Close tab failed', error as Error);
@@ -282,23 +295,29 @@ export class NavigationSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user switches to tab {int}')
     @CSBDDStepDef('I switch to tab {int}')
     async switchToTab(tabIndex: number): Promise<void> {
-        ActionLogger.logStep('Switch to tab', { tabIndex });
+        ActionLogger.logInfo('Switch to tab', { tabIndex, type: 'navigation_step' });
         
         try {
-            const pages = this.context.pages();
+            const browserContext = this.context.getCurrentBrowserContext();
+            const pages = browserContext.pages();
             const actualIndex = tabIndex - 1; // Convert to 0-based index
             
             if (actualIndex < 0 || actualIndex >= pages.length) {
                 throw new Error(`Tab ${tabIndex} does not exist. Available tabs: 1-${pages.length}`);
             }
 
-            this.page = pages[actualIndex];
-            this.context.set('currentPage', this.page);
-            await this.page.bringToFront();
+            const selectedPage = pages[actualIndex];
+            if (!selectedPage) {
+                throw new Error(`Failed to get page at index ${actualIndex}`);
+            }
+            this.context.setCurrentPage(selectedPage);
+            this.context.store('currentPage', selectedPage, 'scenario');
+            await selectedPage.bringToFront();
 
-            ActionLogger.logSuccess('Switched to tab', { 
+            ActionLogger.logInfo('Switched to tab', { 
                 tabIndex,
-                url: this.page.url()
+                url: this.page.url(),
+                type: 'navigation_success'
             });
         } catch (error) {
             ActionLogger.logError('Switch tab failed', error as Error);

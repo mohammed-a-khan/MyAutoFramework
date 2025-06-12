@@ -51,6 +51,25 @@ export interface KeyboardOptions {
   natural?: boolean;
   pressDelay?: number;
   releaseDelay?: number;
+  sequenceDelay?: number;
+}
+
+export interface MouseOptions {
+  button?: MouseButton;
+  clickCount?: number;
+  delay?: number;
+  force?: boolean;
+  timeout?: number;
+  position?: Point;
+  steps?: number;
+}
+
+export interface TouchOptions {
+  force?: boolean;
+  timeout?: number;
+  position?: Point;
+  duration?: number;
+  steps?: number;
 }
 
 export interface FileUploadOptions {

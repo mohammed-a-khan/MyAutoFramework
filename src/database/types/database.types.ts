@@ -588,3 +588,16 @@ export interface StoredProcedureMetadata {
     created?: Date;
     modified?: Date;
 }
+
+/**
+ * Transaction interface
+ */
+export interface Transaction {
+    id: string;
+    isolationLevel?: string;
+    startTime: Date;
+    connection: DatabaseConnection;
+    savepoints?: string[];
+    status: 'active' | 'committed' | 'rolledback';
+    timeout?: number;
+}

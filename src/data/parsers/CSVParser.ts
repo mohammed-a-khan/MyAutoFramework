@@ -39,7 +39,7 @@ export class CSVParser {
             let skippedRows = 0;
             
             // Setup parser event handlers
-            parser.on('readable', () => {
+            parser.on('readable', async () => {
                 let record;
                 while ((record = parser.read()) !== null) {
                     rowCount++;
@@ -60,7 +60,7 @@ export class CSVParser {
                     const row = this.createRecord(record, headers, hasHeaders);
                     
                     // Apply type conversion
-                    const converted = this.convertTypes(row, options);
+                    const converted = await this.convertTypes(row, options);
                     
                     // Skip empty rows
                     if (options.skipEmptyRows !== false && this.isEmptyRow(converted)) {
@@ -143,7 +143,7 @@ export class CSVParser {
                         
                         // Convert to object
                         const row = this.createRecord(record, headers, hasHeaders);
-                        const converted = this.convertTypes(row, options);
+                        const converted = await this.convertTypes(row, options);
                         
                         // Skip empty rows
                         if (options.skipEmptyRows !== false && this.isEmptyRow(converted)) {
@@ -221,7 +221,7 @@ export class CSVParser {
         let rejectNext: ((error: Error) => void) | null = null;
         let ended = false;
         
-        parser.on('readable', () => {
+        parser.on('readable', async () => {
             let record;
             while ((record = parser.read()) !== null) {
                 rowCount++;
@@ -239,7 +239,7 @@ export class CSVParser {
                 
                 // Convert to object
                 const row = this.createRecord(record, headers, hasHeaders);
-                const converted = this.convertTypes(row, options);
+                const converted = await this.convertTypes(row, options);
                 
                 // Skip empty rows
                 if (options.skipEmptyRows !== false && this.isEmptyRow(converted)) {
@@ -460,7 +460,7 @@ export class CSVParser {
     /**
      * Convert types in record
      */
-    private convertTypes(record: TestData, options: ParserOptions | StreamOptions): TestData {
+    private async convertTypes(record: TestData, options: ParserOptions | StreamOptions): Promise<TestData> {
         const csvOptions = options as any;
         if (csvOptions.parseNumbers === false && 
             csvOptions.parseDates === false && 
@@ -471,7 +471,7 @@ export class CSVParser {
         const converted: TestData = {};
         
         for (const [key, value] of Object.entries(record)) {
-            converted[key] = this.typeConverter.convert(value, {
+            const result = await this.typeConverter.convert(value, 'auto', {
                 parseNumbers: csvOptions.parseNumbers !== false,
                 parseDates: csvOptions.parseDates !== false,
                 parseBooleans: csvOptions.parseBooleans !== false,
@@ -479,6 +479,7 @@ export class CSVParser {
                 emptyStringAsNull: true,
                 nullValues: ['NULL', 'null', 'N/A', 'n/a', '#N/A']
             });
+            converted[key] = result.success ? result.value : value;
         }
         
         return converted;

@@ -19,7 +19,8 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I switch to frame {string}')
     @CSBDDStepDef('user enters frame {string}')
     async switchToFrame(frameIdentifier: string): Promise<void> {
-        ActionLogger.logStep('Switch to frame', { frame: frameIdentifier });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('switch_to_frame', { frame: frameIdentifier });
         
         try {
             const handler = this.getFrameHandler();
@@ -32,9 +33,9 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
                 await handler.switchToFrame(frameIdentifier);
             }
             
-            ActionLogger.logSuccess('Switched to frame', { frame: frameIdentifier });
+            await actionLogger.logAction('frame_switched', { frame: frameIdentifier, success: true });
         } catch (error) {
-            ActionLogger.logError('Switch to frame failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'switch_to_frame', frame: frameIdentifier });
             throw new Error(`Failed to switch to frame "${frameIdentifier}": ${(error as Error).message}`);
         }
     }
@@ -43,15 +44,16 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I switch to parent frame')
     @CSBDDStepDef('user exits current frame')
     async switchToParentFrame(): Promise<void> {
-        ActionLogger.logStep('Switch to parent frame');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('switch_to_parent_frame', {});
         
         try {
             const handler = this.getFrameHandler();
             await handler.switchToParentFrame();
             
-            ActionLogger.logSuccess('Switched to parent frame');
+            await actionLogger.logAction('parent_frame_switched', { success: true });
         } catch (error) {
-            ActionLogger.logError('Switch to parent frame failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'switch_to_parent_frame' });
             throw new Error(`Failed to switch to parent frame: ${(error as Error).message}`);
         }
     }
@@ -60,15 +62,16 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('I switch to main frame')
     @CSBDDStepDef('user returns to main content')
     async switchToMainFrame(): Promise<void> {
-        ActionLogger.logStep('Switch to main frame');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('switch_to_main_frame', {});
         
         try {
             const handler = this.getFrameHandler();
             await handler.switchToMainFrame();
             
-            ActionLogger.logSuccess('Switched to main frame');
+            await actionLogger.logAction('main_frame_switched', { success: true });
         } catch (error) {
-            ActionLogger.logError('Switch to main frame failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'switch_to_main_frame' });
             throw new Error(`Failed to switch to main frame: ${(error as Error).message}`);
         }
     }
@@ -76,7 +79,8 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user waits for frame {string} to load')
     @CSBDDStepDef('I wait for frame {string} to be ready')
     async waitForFrame(frameIdentifier: string): Promise<void> {
-        ActionLogger.logStep('Wait for frame', { frame: frameIdentifier });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('wait_for_frame', { frame: frameIdentifier });
         
         try {
             const handler = this.getFrameHandler();
@@ -84,9 +88,9 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
             
             await handler.waitForFrame(frameIdentifier, { timeout });
             
-            ActionLogger.logSuccess('Frame loaded', { frame: frameIdentifier });
+            await actionLogger.logAction('frame_loaded', { frame: frameIdentifier, success: true });
         } catch (error) {
-            ActionLogger.logError('Wait for frame failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'wait_for_frame', frame: frameIdentifier });
             throw new Error(`Frame "${frameIdentifier}" did not load within timeout: ${(error as Error).message}`);
         }
     }
@@ -96,17 +100,18 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     async executeWithinFrame(frameIdentifier: string): Promise<void> {
         // This step is handled by the BDD framework
         // It sets up context for subsequent steps to execute within the frame
-        ActionLogger.logStep('Execute within frame context', { frame: frameIdentifier });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('execute_within_frame_context', { frame: frameIdentifier });
         
         try {
             await this.switchToFrame(frameIdentifier);
             
             // Store frame context for cleanup
-            this.context.set('currentFrameContext', frameIdentifier);
+            this.context.store('currentFrameContext', frameIdentifier);
             
-            ActionLogger.logSuccess('Frame context established', { frame: frameIdentifier });
+            await actionLogger.logAction('frame_context_established', { frame: frameIdentifier, success: true });
         } catch (error) {
-            ActionLogger.logError('Frame context setup failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'frame_context_setup', frame: frameIdentifier });
             throw error;
         }
     }
@@ -114,7 +119,8 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('the page should have {int} frames')
     @CSBDDStepDef('there should be {int} frames on the page')
     async assertFrameCount(expectedCount: number): Promise<void> {
-        ActionLogger.logStep('Assert frame count', { expectedCount });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('assert_frame_count', { expectedCount });
         
         try {
             const handler = this.getFrameHandler();
@@ -124,12 +130,13 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Frame count mismatch. Expected: ${expectedCount}, Actual: ${actualCount}`);
             }
             
-            ActionLogger.logSuccess('Frame count assertion passed', { 
+            await actionLogger.logAction('frame_count_assertion_passed', { 
                 expectedCount,
-                actualCount 
+                actualCount,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Frame count assertion failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'assert_frame_count', expectedCount });
             throw error;
         }
     }
@@ -137,20 +144,21 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('frame {string} should exist')
     @CSBDDStepDef('the frame {string} should be present')
     async assertFrameExists(frameIdentifier: string): Promise<void> {
-        ActionLogger.logStep('Assert frame exists', { frame: frameIdentifier });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('assert_frame_exists', { frame: frameIdentifier });
         
         try {
             const handler = this.getFrameHandler();
             
             // Try to switch to frame to verify it exists
-            await handler.executeInFrame(frameIdentifier, async (frame) => {
+            await handler.executeInFrame(frameIdentifier, async () => {
                 // Just being in the frame confirms it exists
                 return true;
             });
             
-            ActionLogger.logSuccess('Frame exists', { frame: frameIdentifier });
+            await actionLogger.logAction('frame_exists_confirmed', { frame: frameIdentifier, success: true });
         } catch (error) {
-            ActionLogger.logError('Frame existence assertion failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'assert_frame_exists', frame: frameIdentifier });
             throw new Error(`Frame "${frameIdentifier}" does not exist: ${(error as Error).message}`);
         }
     }
@@ -160,16 +168,18 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     async executeInFrameTemporarily(frameIdentifier: string): Promise<void> {
         // This is a marker step that indicates the next action should be performed in a frame
         // then automatically return to the previous context
-        ActionLogger.logStep('Setup temporary frame context', { frame: frameIdentifier });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('setup_temporary_frame_context', { frame: frameIdentifier });
         
-        this.context.set('temporaryFrameContext', frameIdentifier);
+        this.context.store('temporaryFrameContext', frameIdentifier);
         
-        ActionLogger.logSuccess('Temporary frame context set', { frame: frameIdentifier });
+        await actionLogger.logAction('temporary_frame_context_set', { frame: frameIdentifier, success: true });
     }
 
     @CSBDDStepDef('the current frame URL should contain {string}')
     async assertFrameURLContains(expectedText: string): Promise<void> {
-        ActionLogger.logStep('Assert frame URL contains', { expectedText });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('assert_frame_url_contains', { expectedText });
         
         try {
             const handler = this.getFrameHandler();
@@ -180,12 +190,13 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
                 throw new Error(`Frame URL does not contain "${expectedText}". Actual: "${url}"`);
             }
             
-            ActionLogger.logSuccess('Frame URL assertion passed', { 
+            await actionLogger.logAction('frame_url_assertion_passed', { 
                 expectedText,
-                actualUrl: url 
+                actualUrl: url,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Frame URL assertion failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'assert_frame_url', expectedText });
             throw error;
         }
     }
@@ -193,7 +204,8 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user switches to nested frame path {string}')
     @CSBDDStepDef('I navigate to nested frames {string}')
     async switchToNestedFrames(framePath: string): Promise<void> {
-        ActionLogger.logStep('Switch to nested frames', { path: framePath });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('switch_to_nested_frames', { path: framePath });
         
         try {
             const handler = this.getFrameHandler();
@@ -205,15 +217,16 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
             // Navigate through each frame in the path
             for (const frame of frames) {
                 await handler.switchToFrame(frame);
-                ActionLogger.logInfo(`Entered frame: ${frame}`);
+                await actionLogger.logAction('entered_frame', { frame });
             }
             
-            ActionLogger.logSuccess('Navigated to nested frames', { 
+            await actionLogger.logAction('navigated_to_nested_frames', { 
                 path: framePath,
-                depth: frames.length 
+                depth: frames.length,
+                success: true 
             });
         } catch (error) {
-            ActionLogger.logError('Nested frame navigation failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'nested_frame_navigation', path: framePath });
             throw new Error(`Failed to navigate nested frames "${framePath}": ${(error as Error).message}`);
         }
     }
@@ -221,7 +234,8 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
     @CSBDDStepDef('user prints frame tree')
     @CSBDDStepDef('I display the frame structure')
     async printFrameTree(): Promise<void> {
-        ActionLogger.logStep('Print frame tree');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logAction('print_frame_tree', {});
         
         try {
             const handler = this.getFrameHandler();
@@ -229,14 +243,14 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
             
             const treeString = this.formatFrameTree(frameTree);
             
-            ActionLogger.logInfo('Frame tree structure:\n' + treeString);
+            await actionLogger.logAction('frame_tree_structure', { tree: treeString });
             
             // Store for potential assertions
-            this.context.set('frameTree', frameTree);
+            this.context.store('frameTree', frameTree);
             
-            ActionLogger.logSuccess('Frame tree printed');
+            await actionLogger.logAction('frame_tree_printed', { success: true });
         } catch (error) {
-            ActionLogger.logError('Print frame tree failed', error as Error);
+            await actionLogger.logError(error as Error, { action: 'print_frame_tree' });
             throw new Error(`Failed to print frame tree: ${(error as Error).message}`);
         }
     }
@@ -257,7 +271,11 @@ export class FrameSteps extends CSBDDBaseStepDefinition {
             try {
                 await this.frameHandler.switchToMainFrame();
             } catch (error) {
-                ActionLogger.logWarning('Frame cleanup failed', { error: (error as Error).message });
+                const actionLogger = ActionLogger.getInstance();
+                await actionLogger.logAction('frame_cleanup_warning', { 
+                    warning: 'Frame cleanup failed', 
+                    error: (error as Error).message 
+                });
             }
         }
     }

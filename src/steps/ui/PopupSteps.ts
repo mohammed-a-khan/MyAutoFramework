@@ -20,7 +20,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user clicks {string} which opens popup')
    @CSBDDStepDef('I click {string} that opens a new window')
    async clickElementThatOpensPopup(elementDescription: string): Promise<void> {
-       ActionLogger.logStep('Click element that opens popup', { element: elementDescription });
+       ActionLogger.logInfo('Click element that opens popup', { element: elementDescription, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -31,12 +31,13 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            });
            
            // Store popup reference
-           this.context.set('lastPopup', popup);
+           this.context.store('lastPopup', popup, 'scenario');
            
-           ActionLogger.logSuccess('Clicked element and popup opened', { 
+           ActionLogger.logInfo('Clicked element and popup opened', { 
                element: elementDescription,
                popupUrl: popup.url(),
-               popupCount: handler.getPopupCount()
+               popupCount: handler.getPopupCount(),
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Click with popup failed', error as Error);
@@ -48,7 +49,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('I switch to the popup')
    @CSBDDStepDef('user focuses on popup window')
    async switchToPopup(): Promise<void> {
-       ActionLogger.logStep('Switch to popup window');
+       ActionLogger.logInfo('Switch to popup window', { type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -62,12 +63,13 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            const popup = await handler.switchToPopup(popups.length - 1);
            
            // Update page reference
-           this.page = popup;
-           this.context.set('currentPage', popup);
+           this.context.setCurrentPage(popup);
+           this.context.store('currentPage', popup, 'scenario');
            
-           ActionLogger.logSuccess('Switched to popup', { 
+           ActionLogger.logInfo('Switched to popup', { 
                url: popup.url(),
-               title: await popup.title()
+               title: await popup.title(),
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Switch to popup failed', error as Error);
@@ -78,20 +80,21 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user switches to popup window {int}')
    @CSBDDStepDef('I switch to popup number {int}')
    async switchToPopupByIndex(popupIndex: number): Promise<void> {
-       ActionLogger.logStep('Switch to popup by index', { popupIndex });
+       ActionLogger.logInfo('Switch to popup by index', { popupIndex, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
            const popup = await handler.switchToPopup(popupIndex - 1); // Convert to 0-based
            
            // Update page reference
-           this.page = popup;
-           this.context.set('currentPage', popup);
+           this.context.setCurrentPage(popup);
+           this.context.store('currentPage', popup, 'scenario');
            
-           ActionLogger.logSuccess('Switched to popup', { 
+           ActionLogger.logInfo('Switched to popup', { 
                popupIndex,
                url: popup.url(),
-               title: await popup.title()
+               title: await popup.title(),
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Switch to popup by index failed', error as Error);
@@ -103,19 +106,20 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('I switch back to main window')
    @CSBDDStepDef('user returns to parent window')
    async switchToMainWindow(): Promise<void> {
-       ActionLogger.logStep('Switch to main window');
+       ActionLogger.logInfo('Switch to main window', { type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
            const mainWindow = await handler.switchToMainWindow();
            
            // Update page reference
-           this.page = mainWindow;
-           this.context.set('currentPage', mainWindow);
+           this.context.setCurrentPage(mainWindow);
+           this.context.store('currentPage', mainWindow, 'scenario');
            
-           ActionLogger.logSuccess('Switched to main window', { 
+           ActionLogger.logInfo('Switched to main window', { 
                url: mainWindow.url(),
-               title: await mainWindow.title()
+               title: await mainWindow.title(),
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Switch to main window failed', error as Error);
@@ -127,7 +131,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('I close the popup')
    @CSBDDStepDef('user closes current window')
    async closeCurrentPopup(): Promise<void> {
-       ActionLogger.logStep('Close current popup');
+       ActionLogger.logInfo('Close current popup', { type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -137,11 +141,12 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            
            // Switch back to main window
            const mainWindow = await handler.switchToMainWindow();
-           this.page = mainWindow;
-           this.context.set('currentPage', mainWindow);
+           this.context.setCurrentPage(mainWindow);
+           this.context.store('currentPage', mainWindow, 'scenario');
            
-           ActionLogger.logSuccess('Popup closed', { 
-               remainingPopups: handler.getPopupCount()
+           ActionLogger.logInfo('Popup closed', { 
+               remainingPopups: handler.getPopupCount(),
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Close popup failed', error as Error);
@@ -152,7 +157,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user closes all popups')
    @CSBDDStepDef('I close all popup windows')
    async closeAllPopups(): Promise<void> {
-       ActionLogger.logStep('Close all popups');
+       ActionLogger.logInfo('Close all popups', { type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -161,11 +166,13 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            await handler.closeAllPopups();
            
            // Ensure we're on main window
-           this.page = handler.getCurrentPage();
-           this.context.set('currentPage', this.page);
+           const currentPage = handler.getCurrentPage();
+           this.context.setCurrentPage(currentPage);
+           this.context.store('currentPage', currentPage, 'scenario');
            
-           ActionLogger.logSuccess('All popups closed', { 
-               closedCount: popupCount
+           ActionLogger.logInfo('All popups closed', { 
+               closedCount: popupCount,
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Close all popups failed', error as Error);
@@ -176,7 +183,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user handles alert dialog with {string}')
    @CSBDDStepDef('I {string} the alert')
    async handleAlert(action: string): Promise<void> {
-       ActionLogger.logStep('Handle alert dialog', { action });
+       ActionLogger.logInfo('Handle alert dialog', { action, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -185,9 +192,9 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            await handler.handleDialog('alert', dialogAction);
            
            // Trigger action that will show alert
-           this.context.set('dialogHandled', true);
+           this.context.store('dialogHandled', true, 'scenario');
            
-           ActionLogger.logSuccess('Alert handler registered', { action: dialogAction });
+           ActionLogger.logInfo('Alert handler registered', { action: dialogAction, type: 'popup_success' });
        } catch (error) {
            ActionLogger.logError('Handle alert failed', error as Error);
            throw new Error(`Failed to handle alert: ${(error as Error).message}`);
@@ -197,7 +204,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user handles confirm dialog with {string}')
    @CSBDDStepDef('I {string} the confirmation')
    async handleConfirm(action: string): Promise<void> {
-       ActionLogger.logStep('Handle confirm dialog', { action });
+       ActionLogger.logInfo('Handle confirm dialog', { action, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -205,9 +212,9 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            
            await handler.handleDialog('confirm', dialogAction);
            
-           this.context.set('dialogHandled', true);
+           this.context.store('dialogHandled', true, 'scenario');
            
-           ActionLogger.logSuccess('Confirm handler registered', { action: dialogAction });
+           ActionLogger.logInfo('Confirm handler registered', { action: dialogAction, type: 'popup_success' });
        } catch (error) {
            ActionLogger.logError('Handle confirm failed', error as Error);
            throw new Error(`Failed to handle confirm dialog: ${(error as Error).message}`);
@@ -217,7 +224,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user handles prompt dialog with {string} and enters {string}')
    @CSBDDStepDef('I {string} the prompt with text {string}')
    async handlePrompt(action: string, text: string): Promise<void> {
-       ActionLogger.logStep('Handle prompt dialog', { action, text });
+       ActionLogger.logInfo('Handle prompt dialog', { action, text, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -225,11 +232,12 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            
            await handler.handleDialog('prompt', dialogAction, text);
            
-           this.context.set('dialogHandled', true);
+           this.context.store('dialogHandled', true, 'scenario');
            
-           ActionLogger.logSuccess('Prompt handler registered', { 
+           ActionLogger.logInfo('Prompt handler registered', { 
                action: dialogAction,
-               text: text
+               text: text,
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Handle prompt failed', error as Error);
@@ -240,7 +248,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('the number of popup windows should be {int}')
    @CSBDDStepDef('there should be {int} popup windows')
    async assertPopupCount(expectedCount: number): Promise<void> {
-       ActionLogger.logStep('Assert popup count', { expectedCount });
+       ActionLogger.logInfo('Assert popup count', { expectedCount, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -250,9 +258,10 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
                throw new Error(`Popup count mismatch. Expected: ${expectedCount}, Actual: ${actualCount}`);
            }
            
-           ActionLogger.logSuccess('Popup count assertion passed', { 
+           ActionLogger.logInfo('Popup count assertion passed', { 
                expectedCount,
-               actualCount 
+               actualCount,
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Popup count assertion failed', error as Error);
@@ -263,7 +272,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('popup window should have title {string}')
    @CSBDDStepDef('the popup title should be {string}')
    async assertPopupTitle(expectedTitle: string): Promise<void> {
-       ActionLogger.logStep('Assert popup title', { expectedTitle });
+       ActionLogger.logInfo('Assert popup title', { expectedTitle, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -274,9 +283,10 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
                throw new Error(`Popup title mismatch. Expected: "${expectedTitle}", Actual: "${actualTitle}"`);
            }
            
-           ActionLogger.logSuccess('Popup title assertion passed', { 
+           ActionLogger.logInfo('Popup title assertion passed', { 
                expectedTitle,
-               actualTitle 
+               actualTitle,
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Popup title assertion failed', error as Error);
@@ -287,7 +297,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('popup window URL should contain {string}')
    @CSBDDStepDef('the popup URL should contain {string}')
    async assertPopupURLContains(expectedText: string): Promise<void> {
-       ActionLogger.logStep('Assert popup URL contains', { expectedText });
+       ActionLogger.logInfo('Assert popup URL contains', { expectedText, type: 'popup_step' });
        
        try {
            const handler = this.getPopupHandler();
@@ -298,9 +308,10 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
                throw new Error(`Popup URL does not contain "${expectedText}". Actual: "${actualURL}"`);
            }
            
-           ActionLogger.logSuccess('Popup URL assertion passed', { 
+           ActionLogger.logInfo('Popup URL assertion passed', { 
                expectedText,
-               actualURL 
+               actualURL,
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Popup URL assertion failed', error as Error);
@@ -311,7 +322,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user waits for popup to open')
    @CSBDDStepDef('I wait for a new window')
    async waitForPopup(): Promise<void> {
-       ActionLogger.logStep('Wait for popup to open');
+       ActionLogger.logInfo('Wait for popup to open', { type: 'popup_step' });
        
        try {
            const timeout = ConfigurationManager.getInt('POPUP_TIMEOUT', 10000);
@@ -320,11 +331,12 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            const popup = await popupPromise;
            
            // Store popup reference
-           this.context.set('lastPopup', popup);
+           this.context.store('lastPopup', popup, 'scenario');
            
-           ActionLogger.logSuccess('Popup opened', { 
+           ActionLogger.logInfo('Popup opened', { 
                url: popup.url(),
-               title: await popup.title()
+               title: await popup.title(),
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Wait for popup failed', error as Error);
@@ -335,7 +347,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    @CSBDDStepDef('user opens link {string} in new window')
    @CSBDDStepDef('I open {string} in a new window')
    async openLinkInNewWindow(elementDescription: string): Promise<void> {
-       ActionLogger.logStep('Open link in new window', { element: elementDescription });
+       ActionLogger.logInfo('Open link in new window', { element: elementDescription, type: 'popup_step' });
        
        try {
            const element = await this.findElement(elementDescription);
@@ -347,16 +359,17 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            }
            
            // Open in new window
-           const newPage = await this.context.newPage();
+           const newPage = await this.context.getCurrentBrowserContext().newPage();
            await newPage.goto(href);
            
            // Register with popup handler
            const handler = this.getPopupHandler();
            handler.getPopups().push(newPage);
            
-           ActionLogger.logSuccess('Link opened in new window', { 
+           ActionLogger.logInfo('Link opened in new window', { 
                element: elementDescription,
-               url: href
+               url: href,
+               type: 'popup_success'
            });
        } catch (error) {
            ActionLogger.logError('Open link in new window failed', error as Error);
@@ -365,7 +378,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
    }
 
    private async findElement(description: string): Promise<CSWebElement> {
-       const storedElement = this.context.get<CSWebElement>(`element_${description}`);
+       const storedElement = this.context.retrieve<CSWebElement>(`element_${description}`);
        if (storedElement) {
            return storedElement;
        }
@@ -393,7 +406,7 @@ export class PopupSteps extends CSBDDBaseStepDefinition {
            try {
                await this.popupHandler.closeAllPopups();
            } catch (error) {
-               ActionLogger.logWarning('Popup cleanup failed', { error: (error as Error).message });
+               ActionLogger.logWarn('Popup cleanup failed', { error: (error as Error).message });
            }
        }
    }

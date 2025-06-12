@@ -3,58 +3,61 @@
 import { CSBDDStepDef } from '../../bdd/decorators/CSBDDStepDef';
 import { CSBDDBaseStepDefinition } from '../../bdd/base/CSBDDBaseStepDefinition';
 import { DatabaseContext } from '../../database/context/DatabaseContext';
-import { CSDatabase } from '../../database/client/CSDatabase';
-import { TransactionManager } from '../../database/client/TransactionManager';
 import { ActionLogger } from '../../core/logging/ActionLogger';
 import { Transaction } from '../../database/types/database.types';
 
 export class TransactionSteps extends CSBDDBaseStepDefinition {
-    private databaseContext: DatabaseContext;
-    private transactionManager: TransactionManager;
+    private databaseContext: DatabaseContext = new DatabaseContext();
+    private activeTransaction: Transaction | null = null;
+    private transactionStartTime: Date | null = null;
+    private savepoints: string[] = [];
 
     constructor() {
         super();
-        this.databaseContext = this.context.getDatabaseContext();
-        this.transactionManager = TransactionManager.getInstance();
     }
 
     @CSBDDStepDef('user begins database transaction')
     @CSBDDStepDef('user starts database transaction')
     async beginTransaction(): Promise<void> {
-        ActionLogger.logDatabaseAction('begin_transaction');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('begin_transaction', '', 0);
 
-        const db = this.getCurrentDatabase();
-        
         try {
             // Check if transaction already active
-            if (this.databaseContext.hasActiveTransaction()) {
+            if (this.activeTransaction) {
                 throw new Error('A transaction is already active. Commit or rollback before starting a new one');
             }
 
-            const transaction = await this.transactionManager.begin(db.getConnection());
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
+            await adapter.beginTransaction(connection);
             
-            this.databaseContext.setActiveTransaction(transaction);
-            this.databaseContext.setTransactionStartTime(new Date());
+            this.activeTransaction = {
+                id: `txn_${Date.now()}`,
+                startTime: new Date(),
+                connection,
+                status: 'active',
+                savepoints: []
+            };
+            this.transactionStartTime = new Date();
 
-            ActionLogger.logDatabaseAction('transaction_started', {
-                transactionId: transaction.id,
-                isolationLevel: transaction.isolationLevel
+            await actionLogger.logDatabase('transaction_started', '', 0, undefined, {
+                transactionId: this.activeTransaction.id
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('transaction_begin_failed', error);
-            throw new Error(`Failed to begin transaction: ${error.message}`);
+            await actionLogger.logDatabase('transaction_begin_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to begin transaction: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user begins database transaction with isolation level {string}')
     async beginTransactionWithIsolation(isolationLevel: string): Promise<void> {
-        ActionLogger.logDatabaseAction('begin_transaction_with_isolation', { isolationLevel });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('begin_transaction_with_isolation', '', 0, undefined, { isolationLevel });
 
-        const db = this.getCurrentDatabase();
-        
         try {
-            if (this.databaseContext.hasActiveTransaction()) {
+            if (this.activeTransaction) {
                 throw new Error('A transaction is already active');
             }
 
@@ -68,211 +71,243 @@ export class TransactionSteps extends CSBDDBaseStepDefinition {
                 );
             }
 
-            const transaction = await this.transactionManager.beginWithIsolation(
-                db.getConnection(),
-                upperLevel as any
-            );
+            const adapter = this.databaseContext.getActiveAdapter();
+            const connection = this.getActiveConnection();
             
-            this.databaseContext.setActiveTransaction(transaction);
-            this.databaseContext.setTransactionStartTime(new Date());
+            const options = {
+                isolationLevel: upperLevel as any
+            };
+            
+            await adapter.beginTransaction(connection, options);
+            
+            this.activeTransaction = {
+                id: `txn_${Date.now()}`,
+                isolationLevel: upperLevel,
+                startTime: new Date(),
+                connection,
+                status: 'active',
+                savepoints: []
+            };
+            this.transactionStartTime = new Date();
 
-            ActionLogger.logDatabaseAction('transaction_started_with_isolation', {
-                transactionId: transaction.id,
+            await actionLogger.logDatabase('transaction_started_with_isolation', '', 0, undefined, {
+                transactionId: this.activeTransaction.id,
                 isolationLevel: upperLevel
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('transaction_isolation_failed', error);
-            throw new Error(`Failed to begin transaction with isolation level: ${error.message}`);
+            await actionLogger.logDatabase('transaction_isolation_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to begin transaction with isolation level: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user commits database transaction')
     @CSBDDStepDef('user saves database transaction')
     async commitTransaction(): Promise<void> {
-        ActionLogger.logDatabaseAction('commit_transaction');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('commit_transaction', '', 0);
 
         try {
             const transaction = this.getActiveTransaction();
-            const startTime = this.databaseContext.getTransactionStartTime();
+            const startTime = this.transactionStartTime;
             
-            await this.transactionManager.commit(transaction);
+            const adapter = this.databaseContext.getActiveAdapter();
+            await adapter.commitTransaction(transaction.connection);
             
             const duration = startTime ? Date.now() - startTime.getTime() : 0;
             
-            this.databaseContext.clearActiveTransaction();
-            this.databaseContext.addTransactionHistory({
+            this.activeTransaction = null;
+            this.transactionStartTime = null;
+            this.savepoints = [];
+            
+            this.store('lastTransactionHistory', {
                 id: transaction.id,
                 type: 'commit',
                 duration,
                 timestamp: new Date()
             });
 
-            ActionLogger.logDatabaseAction('transaction_committed', {
+            await actionLogger.logDatabase('transaction_committed', '', duration, undefined, {
                 transactionId: transaction.id,
                 duration
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('transaction_commit_failed', error);
-            throw new Error(`Failed to commit transaction: ${error.message}`);
+            await actionLogger.logDatabase('transaction_commit_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to commit transaction: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user rolls back database transaction')
     @CSBDDStepDef('user cancels database transaction')
     async rollbackTransaction(): Promise<void> {
-        ActionLogger.logDatabaseAction('rollback_transaction');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('rollback_transaction', '', 0);
 
         try {
             const transaction = this.getActiveTransaction();
-            const startTime = this.databaseContext.getTransactionStartTime();
+            const startTime = this.transactionStartTime;
             
-            await this.transactionManager.rollback(transaction);
+            const adapter = this.databaseContext.getActiveAdapter();
+            await adapter.rollbackTransaction(transaction.connection);
             
             const duration = startTime ? Date.now() - startTime.getTime() : 0;
             
-            this.databaseContext.clearActiveTransaction();
-            this.databaseContext.addTransactionHistory({
+            this.activeTransaction = null;
+            this.transactionStartTime = null;
+            this.savepoints = [];
+            
+            this.store('lastTransactionHistory', {
                 id: transaction.id,
                 type: 'rollback',
                 duration,
                 timestamp: new Date()
             });
 
-            ActionLogger.logDatabaseAction('transaction_rolled_back', {
+            await actionLogger.logDatabase('transaction_rolled_back', '', duration, undefined, {
                 transactionId: transaction.id,
                 duration
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('transaction_rollback_failed', error);
-            throw new Error(`Failed to rollback transaction: ${error.message}`);
+            await actionLogger.logDatabase('transaction_rollback_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to rollback transaction: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user creates savepoint {string}')
     async createSavepoint(savepointName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('create_savepoint', { savepointName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('create_savepoint', '', 0, undefined, { savepointName });
 
         try {
             const transaction = this.getActiveTransaction();
             
-            await this.transactionManager.createSavepoint(transaction, savepointName);
+            const adapter = this.databaseContext.getActiveAdapter();
+            await adapter.createSavepoint(transaction.connection, savepointName);
             
-            this.databaseContext.addSavepoint(savepointName);
+            this.savepoints.push(savepointName);
+            if (transaction.savepoints) {
+                transaction.savepoints.push(savepointName);
+            }
 
-            ActionLogger.logDatabaseAction('savepoint_created', {
+            await actionLogger.logDatabase('savepoint_created', '', 0, undefined, {
                 transactionId: transaction.id,
                 savepointName
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('savepoint_create_failed', error);
-            throw new Error(`Failed to create savepoint '${savepointName}': ${error.message}`);
+            await actionLogger.logDatabase('savepoint_create_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to create savepoint '${savepointName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user rolls back to savepoint {string}')
     async rollbackToSavepoint(savepointName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('rollback_to_savepoint', { savepointName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('rollback_to_savepoint', '', 0, undefined, { savepointName });
 
         try {
             const transaction = this.getActiveTransaction();
             
-            if (!this.databaseContext.hasSavepoint(savepointName)) {
+            if (!this.savepoints.includes(savepointName)) {
                 throw new Error(`Savepoint '${savepointName}' does not exist`);
             }
 
-            await this.transactionManager.rollbackToSavepoint(transaction, savepointName);
+            const adapter = this.databaseContext.getActiveAdapter();
+            await adapter.rollbackToSavepoint(transaction.connection, savepointName);
             
             // Remove savepoints created after this one
-            this.databaseContext.removeSavepointsAfter(savepointName);
+            const index = this.savepoints.indexOf(savepointName);
+            this.savepoints = this.savepoints.slice(0, index + 1);
 
-            ActionLogger.logDatabaseAction('savepoint_rolled_back', {
+            await actionLogger.logDatabase('savepoint_rolled_back', '', 0, undefined, {
                 transactionId: transaction.id,
                 savepointName
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('savepoint_rollback_failed', error);
-            throw new Error(`Failed to rollback to savepoint '${savepointName}': ${error.message}`);
+            await actionLogger.logDatabase('savepoint_rollback_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to rollback to savepoint '${savepointName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user releases savepoint {string}')
     async releaseSavepoint(savepointName: string): Promise<void> {
-        ActionLogger.logDatabaseAction('release_savepoint', { savepointName });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('release_savepoint', '', 0, undefined, { savepointName });
 
         try {
             const transaction = this.getActiveTransaction();
             
-            if (!this.databaseContext.hasSavepoint(savepointName)) {
+            if (!this.savepoints.includes(savepointName)) {
                 throw new Error(`Savepoint '${savepointName}' does not exist`);
             }
 
-            await this.transactionManager.releaseSavepoint(transaction, savepointName);
+            const adapter = this.databaseContext.getActiveAdapter();
+            await adapter.releaseSavepoint(transaction.connection, savepointName);
             
-            this.databaseContext.removeSavepoint(savepointName);
+            const index = this.savepoints.indexOf(savepointName);
+            if (index > -1) {
+                this.savepoints.splice(index, 1);
+            }
 
-            ActionLogger.logDatabaseAction('savepoint_released', {
+            await actionLogger.logDatabase('savepoint_released', '', 0, undefined, {
                 transactionId: transaction.id,
                 savepointName
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('savepoint_release_failed', error);
-            throw new Error(`Failed to release savepoint '${savepointName}': ${error.message}`);
+            await actionLogger.logDatabase('savepoint_release_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to release savepoint '${savepointName}': ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('database should have active transaction')
     async validateActiveTransaction(): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_active_transaction');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('validate_active_transaction', '', 0);
 
-        if (!this.databaseContext.hasActiveTransaction()) {
+        if (!this.activeTransaction) {
             throw new Error('No active transaction found');
         }
 
-        const transaction = this.databaseContext.getActiveTransaction();
-        
-        ActionLogger.logDatabaseAction('active_transaction_validated', {
-            transactionId: transaction!.id,
-            isolationLevel: transaction!.isolationLevel
+        await actionLogger.logDatabase('active_transaction_validated', '', 0, undefined, {
+            transactionId: this.activeTransaction.id,
+            isolationLevel: this.activeTransaction.isolationLevel
         });
     }
 
     @CSBDDStepDef('database should not have active transaction')
     async validateNoActiveTransaction(): Promise<void> {
-        ActionLogger.logDatabaseAction('validate_no_active_transaction');
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('validate_no_active_transaction', '', 0);
 
-        if (this.databaseContext.hasActiveTransaction()) {
-            const transaction = this.databaseContext.getActiveTransaction();
-            throw new Error(`Found active transaction: ${transaction!.id}`);
+        if (this.activeTransaction) {
+            throw new Error(`Found active transaction: ${this.activeTransaction.id}`);
         }
 
-        ActionLogger.logDatabaseAction('no_active_transaction_validated');
+        await actionLogger.logDatabase('no_active_transaction_validated', '', 0);
     }
 
     @CSBDDStepDef('user executes query {string} within transaction')
     async executeQueryInTransaction(query: string): Promise<void> {
-        ActionLogger.logDatabaseAction('execute_query_in_transaction', {
-            query: this.sanitizeQueryForLog(query)
-        });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('execute_query_in_transaction', this.sanitizeQueryForLog(query), 0);
 
         try {
             const transaction = this.getActiveTransaction();
             const interpolatedQuery = this.interpolateVariables(query);
             
-            const db = this.getCurrentDatabase();
+            const adapter = this.databaseContext.getActiveAdapter();
             const startTime = Date.now();
             
             // Execute query within transaction context
-            const result = await db.queryInTransaction(interpolatedQuery, transaction);
+            const result = await adapter.query(transaction.connection, interpolatedQuery);
             const executionTime = Date.now() - startTime;
 
-            this.databaseContext.setLastResult(result);
-            this.databaseContext.addQueryExecution({
+            this.databaseContext.storeResult('last', result);
+            this.store('lastQueryExecution', {
                 query: interpolatedQuery,
                 executionTime,
                 rowCount: result.rowCount,
@@ -280,55 +315,55 @@ export class TransactionSteps extends CSBDDBaseStepDefinition {
                 transactionId: transaction.id
             });
 
-            ActionLogger.logDatabaseAction('transaction_query_executed', {
+            await actionLogger.logDatabase('transaction_query_executed', interpolatedQuery, executionTime, result.rowCount, {
                 transactionId: transaction.id,
                 rowCount: result.rowCount,
                 executionTime
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('transaction_query_failed', error);
-            throw new Error(`Failed to execute query in transaction: ${error.message}`);
+            await actionLogger.logDatabase('transaction_query_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to execute query in transaction: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     @CSBDDStepDef('user sets transaction timeout to {int} seconds')
     async setTransactionTimeout(timeout: number): Promise<void> {
-        ActionLogger.logDatabaseAction('set_transaction_timeout', { timeout });
+        const actionLogger = ActionLogger.getInstance();
+        await actionLogger.logDatabase('set_transaction_timeout', '', 0, undefined, { timeout });
 
         try {
             const transaction = this.getActiveTransaction();
             
-            await this.transactionManager.setTransactionTimeout(transaction, timeout * 1000);
+            // Set timeout on the transaction
+            transaction.timeout = timeout * 1000;
             
-            this.databaseContext.setTransactionTimeout(timeout * 1000);
-
-            ActionLogger.logDatabaseAction('transaction_timeout_set', {
+            await actionLogger.logDatabase('transaction_timeout_set', '', 0, undefined, {
                 transactionId: transaction.id,
                 timeout
             });
 
         } catch (error) {
-            ActionLogger.logDatabaseError('transaction_timeout_failed', error);
-            throw new Error(`Failed to set transaction timeout: ${error.message}`);
+            await actionLogger.logDatabase('transaction_timeout_failed', '', 0, undefined, { error: error instanceof Error ? error.message : String(error) });
+            throw new Error(`Failed to set transaction timeout: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
     // Helper methods
-    private getCurrentDatabase(): CSDatabase {
-        const db = this.databaseContext.getCurrentDatabase();
-        if (!db) {
+    private getActiveConnection(): any {
+        const connectionField = 'activeConnection';
+        const connection = (this.databaseContext as any)[connectionField];
+        if (!connection) {
             throw new Error('No database connection established. Use "Given user connects to ... database" first');
         }
-        return db;
+        return connection;
     }
 
     private getActiveTransaction(): Transaction {
-        const transaction = this.databaseContext.getActiveTransaction();
-        if (!transaction) {
+        if (!this.activeTransaction) {
             throw new Error('No active transaction. Use "Given user begins database transaction" first');
         }
-        return transaction;
+        return this.activeTransaction;
     }
 
     private sanitizeQueryForLog(query: string): string {
@@ -340,8 +375,8 @@ export class TransactionSteps extends CSBDDBaseStepDefinition {
     }
 
     private interpolateVariables(text: string): string {
-        return text.replace(/\{\{(\w+)\}\}/g, (match, variable) => {
-            const value = this.context.getVariable(variable);
+        return text.replace(/\{\{(\w+)\}\}/g, (_match, variable) => {
+            const value = this.context.retrieve(variable);
             if (value === undefined) {
                 throw new Error(`Variable '${variable}' is not defined in context`);
             }
